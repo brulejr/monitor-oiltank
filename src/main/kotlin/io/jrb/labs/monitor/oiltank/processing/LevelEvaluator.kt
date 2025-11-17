@@ -25,7 +25,6 @@
 package io.jrb.labs.monitor.oiltank.processing
 
 import io.jrb.labs.monitor.oiltank.config.LevelThresholdDatafill
-import io.jrb.labs.monitor.oiltank.config.MqttDatafill
 import io.jrb.labs.monitor.oiltank.events.EventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.jrb.labs.monitor.oiltank.model.TankLevel

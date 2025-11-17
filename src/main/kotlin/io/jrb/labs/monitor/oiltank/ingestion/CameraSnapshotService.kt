@@ -31,10 +31,13 @@ import io.jrb.labs.monitor.oiltank.events.EventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.jrb.labs.monitor.oiltank.rtsp.RtpH264Depacketizer
 import io.jrb.labs.monitor.oiltank.rtsp.RtspClient
+import io.jrb.labs.monitor.oiltank.rtsp.RtspDisconnectedException
 import jakarta.annotation.PostConstruct
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.springframework.stereotype.Service
 import java.io.ByteArrayOutputStream
@@ -48,53 +51,44 @@ class CameraSnapshotService(
 
     private val log by LoggerDelegate()
 
-    private val rtspClient = RtspClient(
-        url = datafill.snapshotUrl,
-        username = datafill.username,
-        password = datafill.password
-    )
-
     private val decoder = JCodecH264Decoder()
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    // How many frames to skip between published snapshots (1 = every frame)
-    private val publishEveryNFrames = 10
 
     @PostConstruct
     fun start() {
         scope.launch {
-            runCatching {
-                log.info("Starting RTSP capture from {}", datafill.snapshotUrl)
-
-                var frameCounter = 0
-                val nalAccumulator = mutableListOf<ByteArray>()
-
-                rtspClient.rtpStream().collect { rtpPacket ->
-                    val nals = RtpH264Depacketizer.extractNalUnits(rtpPacket)
-                    if (nals.isNotEmpty()) {
-                        nalAccumulator.addAll(nals)
-
-                        // For simplicity, attempt to decode whenever we see new NALs
-                        val image = decoder.decode(nalAccumulator.toList())
-                        if (image != null) {
-                            frameCounter++
-                            if (frameCounter % publishEveryNFrames == 0) {
-                                val baos = ByteArrayOutputStream()
-                                ImageIO.write(image, "jpeg", baos)
-                                val jpegBytes = baos.toByteArray()
-
-                                eventBus.publish(OilEvent.SnapshotReceived(jpegBytes))
-                                log.debug("Published snapshot ({} bytes)", jpegBytes.size)
-                            }
-
-                            // Clear accumulator after a decode attempt
-                            nalAccumulator.clear()
-                        }
-                    }
+            while (isActive) {
+                try {
+                    log.info("Starting RTSP session to ${datafill.snapshotUrl}")
+                    startRtspSession()
+                } catch (ex: RtspDisconnectedException) {
+                    log.warn("RTSP connection dropped — reconnecting in 2s")
+                    delay(2000)
+                } catch (ex: Exception) {
+                    log.error("Unexpected RTSP error — reconnecting in 2s", ex)
+                    delay(2000)
                 }
-            }.onFailure { ex ->
-                log.error("Error in RTSP capture", ex)
+            }
+        }
+    }
+
+    private suspend fun startRtspSession() {
+        val rtsp = RtspClient(
+            url = datafill.snapshotUrl,
+            username = datafill.username,
+            password = datafill.password
+        )
+
+        rtsp.rtpStream().collect { packet ->
+
+            val nals = RtpH264Depacketizer.extractNalUnits(packet)
+            if (nals.isEmpty()) return@collect
+
+            val img = decoder.decode(nals)
+            if (img != null) {
+                val baos = ByteArrayOutputStream()
+                ImageIO.write(img, "jpeg", baos)
+                eventBus.publish(OilEvent.SnapshotReceived(baos.toByteArray()))
             }
         }
     }

@@ -36,6 +36,8 @@ import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
+class RtspDisconnectedException : Exception("RTSP control connection closed")
+
 class RtspClient(
     private val url: String,
     private val username: String? = null,
@@ -47,7 +49,6 @@ class RtspClient(
         val uri = URI(url)
         val host = uri.host
         val port = if (uri.port == -1) 554 else uri.port
-        val path = uri.rawPath.ifEmpty { "/" }
 
         Socket(host, port).use { socket ->
             val writer = PrintWriter(socket.getOutputStream(), true)
@@ -56,48 +57,42 @@ class RtspClient(
             var cseq = 1
             var session: String? = null
 
-            fun writeHeaders(startLine: String, extraHeaders: List<String> = emptyList()) {
-                writer.println(startLine)
+            fun send(method: String, extra: List<String> = emptyList()) {
+                writer.println("$method $url RTSP/1.0")
                 writer.println("CSeq: $cseq")
+
                 if (username != null && password != null) {
-                    val basic = Base64.getEncoder()
+                    val auth = Base64.getEncoder()
                         .encodeToString("$username:$password".toByteArray(StandardCharsets.ISO_8859_1))
-                    writer.println("Authorization: Basic $basic")
+                    writer.println("Authorization: Basic $auth")
                 }
-                extraHeaders.forEach { writer.println(it) }
+
+                extra.forEach { writer.println(it) }
                 writer.println()
                 writer.flush()
                 cseq++
             }
 
-            // OPTIONS
-            writeHeaders("OPTIONS $url RTSP/1.0")
-            input.readRtspResponse()
+            // 1. OPTIONS
+            input.safeReadRtspResponse()
 
-            // DESCRIBE (grab SDP, but we won’t fully parse it here)
-            writeHeaders(
-                "DESCRIBE $url RTSP/1.0",
-                listOf("Accept: application/sdp")
-            )
-            val sdpResponse = input.readRtspResponse()
-            val sdpBody = sdpResponse.body
+            // 2. DESCRIBE for SDP
+            send("DESCRIBE", listOf("Accept: application/sdp"))
+            val describe = input.safeReadRtspResponse()
 
-            // SETUP: assume first video track and client RTP port
-            writeHeaders(
-                "SETUP $url/trackID=1 RTSP/1.0",
-                listOf("Transport: RTP/AVP;unicast;client_port=$rtpPort-${rtpPort + 1}")
-            )
-            val setupResponse = input.readRtspResponse()
-            session = setupResponse.headers["Session"]?.split(";")?.firstOrNull()
+            // 3. SETUP
+            // We assume trackID=1 for video — Tapo C100 is consistent here
+            send("SETUP", listOf("Transport: RTP/AVP;unicast;client_port=$rtpPort-${rtpPort + 1}"))
+            val setup = input.safeReadRtspResponse()
 
-            // PLAY
-            writeHeaders(
-                "PLAY $url RTSP/1.0",
-                listOfNotNull(session?.let { "Session: $it" })
-            )
-            input.readRtspResponse()
+            session = setup.headers["Session"]?.split(";")?.firstOrNull()
 
-            // Now receive RTP packets over UDP
+            // 4. PLAY
+            val playHeaders = session?.let { listOf("Session: $it") } ?: emptyList()
+            send("PLAY", playHeaders)
+            input.safeReadRtspResponse()
+
+            // 5. Capture RTP via UDP
             val rtpSocket = DatagramSocket(rtpPort)
             val buf = ByteArray(2048)
 
@@ -110,18 +105,19 @@ class RtspClient(
     }
 }
 
-// --- Helpers for RTSP parsing ---
 
-private data class RtspResponse(
+data class RtspResponse(
     val statusLine: String,
     val headers: Map<String, String>,
     val body: String
 )
 
-private fun InputStream.readRtspResponse(): RtspResponse {
+fun InputStream.safeReadRtspResponse(): RtspResponse {
     val reader = this.bufferedReader(StandardCharsets.ISO_8859_1)
 
-    val statusLine = reader.readLine() ?: throw IllegalStateException("No RTSP status line")
+    val statusLine = reader.readLine()
+        ?: throw RtspDisconnectedException()   // FIX: graceful disconnect detect
+
     val headers = mutableMapOf<String, String>()
 
     while (true) {
@@ -135,20 +131,12 @@ private fun InputStream.readRtspResponse(): RtspResponse {
         }
     }
 
-    // Some responses (DESCRIBE) have SDP body; others don't.
     val contentLength = headers["Content-Length"]?.toIntOrNull()
     val body = if (contentLength != null && contentLength > 0) {
-        val bodyChars = CharArray(contentLength)
-        var read = 0
-        while (read < contentLength) {
-            val r = reader.read(bodyChars, read, contentLength - read)
-            if (r == -1) break
-            read += r
-        }
-        String(bodyChars, 0, read)
-    } else {
-        ""
-    }
+        val chars = CharArray(contentLength)
+        reader.read(chars, 0, contentLength)
+        String(chars)
+    } else ""
 
     return RtspResponse(statusLine, headers, body)
 }
