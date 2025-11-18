@@ -27,8 +27,17 @@ package io.jrb.labs.monitor.oiltank.ingestion
 import io.jrb.labs.commons.logging.LoggerDelegate
 import io.jrb.labs.monitor.oiltank.config.CameraDatafill
 import io.jrb.labs.monitor.oiltank.rtsp.RtspClient
+import io.jrb.labs.monitor.oiltank.rtsp.RtspDisconnectedException
+import jakarta.annotation.PostConstruct
+import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.springframework.stereotype.Service
 
@@ -38,21 +47,50 @@ class CameraSnapshotService(
 ) {
 
     private val log by LoggerDelegate()
-    private val rtspClient = RtspClient(datafill)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    init {
-        // Just as a smoke test: verify DESCRIBE works when the app starts
-        CoroutineScope(Dispatchers.IO).launch {
+    @PostConstruct
+    fun start() {
+        log.info("Starting CameraSnapshotService RTSP loop")
+        scope.launch {
+            runRtspLoop()
+        }
+    }
+
+    @PreDestroy
+    fun stop() {
+        log.info("[RTSP] Stopping CameraSnapshotService RTSP loop")
+        scope.cancel()
+    }
+
+    private suspend fun runRtspLoop() = coroutineScope {
+        while (isActive) {
             try {
-                val resp = rtspClient.describe()
-                log.info("Initial RTSP DESCRIBE: {}", resp.statusLine)
-                log.debug("RTSP headers: {}", resp.headers)
-                log.debug("RTSP body (SDP):\n{}", resp.body)
-            } catch (ex: Exception) {
-                log.error("Failed initial RTSP DESCRIBE", ex)
+                RtspClient(datafill).use { client ->
+                    log.info("[RTSP] Opening RTSP streaming session")
+                    client.startStreaming { packet ->
+                        // For now, just log packet metadata.
+                        // Next step: parse RTP and extract H264 NAL units.
+                        if (log.isDebugEnabled) {
+                            log.debug(
+                                "RTP packet on channel {} length={}",
+                                packet.channel,
+                                packet.payload.size
+                            )
+                        }
+                    }
+                }
+            } catch (e: RtspDisconnectedException) {
+                log.warn("[RTSP] RTSP connection dropped: ${e.message} — reconnecting in 2s")
+                delay(2000)
+            } catch (e: CancellationException) {
+                log.info("[RTSP] RTSP loop cancelled")
+                break
+            } catch (e: Exception) {
+                log.error("[RTSP] Unexpected error in RTSP loop", e)
+                delay(5000)
             }
         }
     }
 
-    // Later you’ll extend this to SETUP, PLAY, read RTP, decode H264, etc.
 }
