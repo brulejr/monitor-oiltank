@@ -26,71 +26,33 @@ package io.jrb.labs.monitor.oiltank.ingestion
 
 import io.jrb.labs.commons.logging.LoggerDelegate
 import io.jrb.labs.monitor.oiltank.config.CameraDatafill
-import io.jrb.labs.monitor.oiltank.decoder.JCodecH264Decoder
-import io.jrb.labs.monitor.oiltank.events.EventBus
-import io.jrb.labs.monitor.oiltank.events.OilEvent
-import io.jrb.labs.monitor.oiltank.rtsp.RtpH264Depacketizer
 import io.jrb.labs.monitor.oiltank.rtsp.RtspClient
-import io.jrb.labs.monitor.oiltank.rtsp.RtspDisconnectedException
-import jakarta.annotation.PostConstruct
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.springframework.stereotype.Service
-import java.io.ByteArrayOutputStream
-import javax.imageio.ImageIO
 
 @Service
 class CameraSnapshotService(
-    private val datafill: CameraDatafill,
-    private val eventBus: EventBus
+    private val datafill: CameraDatafill
 ) {
 
     private val log by LoggerDelegate()
+    private val rtspClient = RtspClient(datafill)
 
-    private val decoder = JCodecH264Decoder()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    @PostConstruct
-    fun start() {
-        scope.launch {
-            while (isActive) {
-                try {
-                    log.info("Starting RTSP session to ${datafill.snapshotUrl}")
-                    startRtspSession()
-                } catch (ex: RtspDisconnectedException) {
-                    log.warn("RTSP connection dropped — reconnecting in 2s")
-                    delay(2000)
-                } catch (ex: Exception) {
-                    log.error("Unexpected RTSP error — reconnecting in 2s", ex)
-                    delay(2000)
-                }
+    init {
+        // Just as a smoke test: verify DESCRIBE works when the app starts
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val resp = rtspClient.describe()
+                log.info("Initial RTSP DESCRIBE: {}", resp.statusLine)
+                log.debug("RTSP headers: {}", resp.headers)
+                log.debug("RTSP body (SDP):\n{}", resp.body)
+            } catch (ex: Exception) {
+                log.error("Failed initial RTSP DESCRIBE", ex)
             }
         }
     }
 
-    private suspend fun startRtspSession() {
-        val rtsp = RtspClient(
-            url = datafill.snapshotUrl,
-            username = datafill.username,
-            password = datafill.password
-        )
-
-        rtsp.rtpStream().collect { packet ->
-
-            val nals = RtpH264Depacketizer.extractNalUnits(packet)
-            if (nals.isEmpty()) return@collect
-
-            val img = decoder.decode(nals)
-            if (img != null) {
-                val baos = ByteArrayOutputStream()
-                ImageIO.write(img, "jpeg", baos)
-                eventBus.publish(OilEvent.SnapshotReceived(baos.toByteArray()))
-            }
-        }
-    }
-
+    // Later you’ll extend this to SETUP, PLAY, read RTP, decode H264, etc.
 }
