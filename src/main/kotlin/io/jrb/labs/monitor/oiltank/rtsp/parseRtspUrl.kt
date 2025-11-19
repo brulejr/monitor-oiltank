@@ -24,32 +24,45 @@
 
 package io.jrb.labs.monitor.oiltank.rtsp
 
-data class RtspUrl(
-    val username: String? = null,
-    val password: String? = null,
-    val host: String,
-    val port: Int = 554,
-    val path: String
-) {
+import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
-    /**
-     * The complete RTSP URL including credentials if present.
-     *
-     * Examples:
-     *   rtsp://10.10.30.249:554/stream1
-     *   rtsp://user:pass@10.10.30.249:554/stream1
-     */
-    val fullUrl: String
-        get() {
-            val userInfo = when {
-                username != null && password != null -> "${username}:${password}@"
-                username != null                     -> "${username}@"
-                else                                 -> ""
-            }
-            return "rtsp://${userInfo}${host}:${port}${path}"
+/**
+ * Parse an RTSP URL into an RtspUrl data class.
+ *
+ * Handles:
+ *   - embedded credentials
+ *   - percent-decoding of username/password
+ *   - missing port (defaults to 554)
+ *   - path extraction
+ */
+fun parseRtspUrl(rawUrl: String): RtspUrl {
+    val uri = URI(rawUrl)
+
+    val userInfo = uri.userInfo
+    var username: String? = null
+    var password: String? = null
+
+    if (userInfo != null) {
+        val parts = userInfo.split(":", limit = 2)
+        username = URLDecoder.decode(parts[0], StandardCharsets.UTF_8)
+
+        if (parts.size == 2) {
+            password = URLDecoder.decode(parts[1], StandardCharsets.UTF_8)
         }
+    }
 
-    override fun toString(): String =
-        "RtspUrl(username=$username, password=$password, host=$host, port=$port, path=$path)"
+    val host = uri.host ?: throw IllegalArgumentException("Invalid RTSP URL: missing host")
+    val port = if (uri.port == -1) 554 else uri.port
+
+    val path = if (uri.path.isNullOrBlank()) "/stream1" else uri.path
+
+    return RtspUrl(
+        username = username,
+        password = password,
+        host = host,
+        port = port,
+        path = path
+    )
 }
-

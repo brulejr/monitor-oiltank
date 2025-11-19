@@ -22,24 +22,16 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.ingestion
+package io.jrb.labs.monitor.oiltank.ingest
 
 import io.jrb.labs.commons.logging.LoggerDelegate
 import io.jrb.labs.monitor.oiltank.config.CameraDatafill
 import io.jrb.labs.monitor.oiltank.rtsp.RtspClient
 import io.jrb.labs.monitor.oiltank.rtsp.RtspDisconnectedException
+import io.jrb.labs.monitor.oiltank.rtsp.parseRtspUrl
 import jakarta.annotation.PostConstruct
-import jakarta.annotation.PreDestroy
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import org.springframework.stereotype.Service
+import kotlin.concurrent.thread
 
 @Service
 class CameraSnapshotService(
@@ -47,50 +39,45 @@ class CameraSnapshotService(
 ) {
 
     private val log by LoggerDelegate()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile private var isRunning = true
 
     @PostConstruct
     fun start() {
         log.info("Starting CameraSnapshotService RTSP loop")
-        scope.launch {
+
+        thread(start = true, isDaemon = true, name = "rtsp-loop") {
             runRtspLoop()
         }
     }
 
-    @PreDestroy
-    fun stop() {
-        log.info("[RTSP] Stopping CameraSnapshotService RTSP loop")
-        scope.cancel()
-    }
+    private fun runRtspLoop() {
+        val rtspUrl = parseRtspUrl(rawUrl = datafill.snapshotUrl)
 
-    private suspend fun runRtspLoop() = coroutineScope {
-        while (isActive) {
+        while (isRunning) {
             try {
-                RtspClient(datafill).use { client ->
-                    log.info("[RTSP] Opening RTSP streaming session")
-                    client.startStreaming { packet ->
-                        // For now, just log packet metadata.
-                        // Next step: parse RTP and extract H264 NAL units.
-                        if (log.isDebugEnabled) {
-                            log.debug(
-                                "RTP packet on channel {} length={}",
-                                packet.channel,
-                                packet.payload.size
-                            )
-                        }
-                    }
+                log.info("Opening RTSP streaming session")
+
+                val client = RtspClient(
+                    rtsp = rtspUrl,
+                    username = datafill.username,
+                    password = datafill.password
+                )
+
+                client.open()
+
+                client.readRtpLoop { packet ->
+                    // TODO: Extract H264 → JPEG → Float detection
+                    log.debug("Received RTP packet ${packet.size} bytes")
                 }
+
             } catch (e: RtspDisconnectedException) {
-                log.warn("[RTSP] RTSP connection dropped: ${e.message} — reconnecting in 2s")
-                delay(2000)
-            } catch (e: CancellationException) {
-                log.info("[RTSP] RTSP loop cancelled")
-                break
+                log.warn("RTSP connection dropped: ${e.message} — reconnecting in 2s")
+                Thread.sleep(2000)
             } catch (e: Exception) {
-                log.error("[RTSP] Unexpected error in RTSP loop", e)
-                delay(5000)
+                log.error("RTSP error: ${e.message}", e)
+                Thread.sleep(3000)
             }
         }
     }
-
 }

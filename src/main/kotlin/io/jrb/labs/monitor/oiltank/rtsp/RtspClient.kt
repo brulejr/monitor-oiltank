@@ -24,310 +24,199 @@
 
 package io.jrb.labs.monitor.oiltank.rtsp
 
-import io.jrb.labs.commons.logging.LoggerDelegate
-import io.jrb.labs.monitor.oiltank.config.CameraDatafill
+import org.slf4j.LoggerFactory
+import java.io.BufferedInputStream
 import java.io.BufferedReader
-import java.io.BufferedWriter
-import java.io.Closeable
 import java.io.InputStreamReader
-import java.io.OutputStreamWriter
+import java.io.PrintWriter
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
-data class RtspResponse(
-    val statusLine: String,
-    val headers: Map<String, String>,
-    val body: String?
-)
+class RtspDisconnectedException : RuntimeException("RTSP disconnected")
 
-data class RtpPacket(
-    val channel: Int,
-    val payload: ByteArray
-)
-
-class RtspDisconnectedException(message: String) : RuntimeException(message)
-
-/**
- * Minimal RTSP client for Tapo C100:
- * - DESCRIBE with Basic auth
- * - SETUP with interleaved RTP over TCP (channels 0/1)
- * - PLAY
- * - Read interleaved RTP packets on the same TCP socket
- */
 class RtspClient(
-    private val datafill: CameraDatafill
-) : Closeable {
+    private val rtsp: RtspUrl,
+    private val username: String,
+    private val password: String
+) {
+    private val log = LoggerFactory.getLogger(RtspClient::class.java)
 
-    private val log by LoggerDelegate()
+    private lateinit var socket: Socket
+    private lateinit var reader: BufferedReader
+    private lateinit var writer: PrintWriter
+    private lateinit var rawInput: BufferedInputStream
 
-    private var socket: Socket? = null
-    private var reader: BufferedReader? = null
-    private var writer: BufferedWriter? = null
-
-    private var cSeq: Int = 1
+    private var cseq = 1
     private var sessionId: String? = null
-    private lateinit var requestUri: String
-    private lateinit var rtspUrl: RtspUrl
 
-    private fun connectIfNeeded() {
-        if (socket != null) return
+    fun open() {
+        log.info("Opening RTSP TCP socket to ${rtsp.host}:${rtsp.port}")
 
-        rtspUrl = parseRtspUrl(datafill.snapshotUrl)
-        requestUri = "rtsp://${rtspUrl.host}:${rtspUrl.port}${rtspUrl.path}"
+        socket = Socket(rtsp.host, rtsp.port)
+        socket.soTimeout = 7000
 
-        log.info("Opening RTSP TCP socket to {}:{}", rtspUrl.host, rtspUrl.port)
+        rawInput = BufferedInputStream(socket.getInputStream())
+        reader = BufferedReader(InputStreamReader(rawInput, StandardCharsets.UTF_8))
+        writer = PrintWriter(socket.getOutputStream(), true)
 
-        val s = Socket(rtspUrl.host, rtspUrl.port)
-        s.soTimeout = 10000
+        val streamUrl = rtsp.fullUrl
 
-        socket = s
-        reader = BufferedReader(InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1))
-        writer = BufferedWriter(OutputStreamWriter(s.getOutputStream(), StandardCharsets.ISO_8859_1))
-    }
-
-    override fun close() {
-        try {
-            socket?.close()
-        } catch (_: Exception) {
-        }
-        socket = null
-        reader = null
-        writer = null
-    }
-
-    private fun basicAuthHeader(): String {
-        val userPass = "${datafill.username}:${datafill.password}"
-        val encoded = Base64.getEncoder().encodeToString(userPass.toByteArray(StandardCharsets.UTF_8))
-        return "Basic $encoded"
-    }
-
-    private fun sendRequest(
-        method: String,
-        uri: String = requestUri,
-        extraHeaders: Map<String, String> = emptyMap(),
-        body: String? = null
-    ): RtspResponse {
-        connectIfNeeded()
-
-        val r = reader ?: throw IllegalStateException("RTSP reader not initialized")
-        val w = writer ?: throw IllegalStateException("RTSP writer not initialized")
-
-        val sb = StringBuilder()
-        sb.append("$method $uri RTSP/1.0\r\n")
-        sb.append("CSeq: ${cSeq++}\r\n")
-        sb.append("User-Agent: monitor-oiltank/1.0\r\n")
-        sb.append("Authorization: ${basicAuthHeader()}\r\n")
-
-        sessionId?.let { sid ->
-            sb.append("Session: $sid\r\n")
-        }
-
-        for ((k, v) in extraHeaders) {
-            sb.append("$k: $v\r\n")
-        }
-
-        if (body != null) {
-            val bytes = body.toByteArray(StandardCharsets.ISO_8859_1)
-            sb.append("Content-Length: ${bytes.size}\r\n")
-            sb.append("\r\n")
-            sb.append(body)
-        } else {
-            sb.append("\r\n")
-        }
-
-        val request = sb.toString()
-        log.debug("RTSP request:\n{}", request)
-
-        w.write(request)
-        w.flush()
-
-        return readResponse(r)
-    }
-
-    private fun readResponse(reader: BufferedReader): RtspResponse {
-        val statusLine = reader.readLine()
-            ?: throw RtspDisconnectedException("No RTSP status line (connection closed)")
-
-        log.debug("RTSP status line: {}", statusLine)
-
-        val headers = mutableMapOf<String, String>()
-
-        while (true) {
-            val line = reader.readLine() ?: break
-            if (line.isBlank()) break
-
-            val idx = line.indexOf(':')
-            if (idx > 0) {
-                val name = line.substring(0, idx).trim()
-                val value = line.substring(idx + 1).trim()
-                headers[name.lowercase()] = value
-            }
-        }
-
-        val contentLength = headers["content-length"]?.toIntOrNull()
-        val body: String? = if (contentLength != null && contentLength > 0) {
-            val buf = CharArray(contentLength)
-            var read = 0
-            while (read < contentLength) {
-                val n = reader.read(buf, read, contentLength - read)
-                if (n == -1) break
-                read += n
-            }
-            String(buf, 0, read)
-        } else {
-            null
-        }
-
-        return RtspResponse(statusLine = statusLine, headers = headers, body = body)
-    }
-
-    fun describe(): RtspResponse =
-        sendRequest(
-            method = "DESCRIBE",
-            uri = requestUri,
-            extraHeaders = mapOf("Accept" to "application/sdp")
+        // -----------------------------
+        // STEP 1 — DESCRIBE
+        // -----------------------------
+        val describeHeaders = mapOf(
+            "Accept" to "application/sdp",
+            "User-Agent" to "KotlinRTSP/1.0",
+            "Range" to "npt=0-",
+            "Authorization" to basicAuthHeader()
         )
 
-    private fun extractControlUrl(sdp: String?, defaultUri: String): String {
-        if (sdp == null) return "$defaultUri/trackID=1"
+        val describeResp = sendRtspRequest("DESCRIBE", streamUrl, describeHeaders)
 
-        // Look for a=control: lines, prefer video track
-        val lines = sdp.lines()
-        var control: String? = null
-
-        for (line in lines) {
-            val trimmed = line.trim()
-            if (trimmed.startsWith("a=control:", ignoreCase = true)) {
-                val value = trimmed.removePrefix("a=control:").trim()
-                // Some SDP use "trackID=1", some absolute rtsp://...
-                control = value
-                // We just take the first for now; could refine by context (m=video)
-                break
-            }
+        if (describeResp.code != 200) {
+            throw IllegalStateException("DESCRIBE failed (${describeResp.code})")
         }
 
-        if (control.isNullOrBlank()) {
-            return "$defaultUri/trackID=1"
-        }
+        val sdp = describeResp.body ?: throw IllegalStateException("Missing SDP in DESCRIBE")
 
-        // Absolute control URI
-        return if (control.startsWith("rtsp://", ignoreCase = true)) {
-            control
-        } else {
-            // Relative: append to base URI
-            if (control.startsWith("/")) {
-                // absolute path relative to host
-                "rtsp://${rtspUrl.host}:${rtspUrl.port}$control"
-            } else {
-                // relative to defaultUri path
-                if (defaultUri.endsWith("/")) {
-                    "$defaultUri$control"
-                } else {
-                    "$defaultUri/$control"
-                }
-            }
-        }
-    }
+        val track = extractControlTrack(sdp)
+        val controlUrl = streamUrl.trimEnd('/') + "/" + track
 
-    fun setup(controlUri: String): RtspResponse {
-        val transport = "RTP/AVP/TCP;unicast;interleaved=0-1"
-        val resp = sendRequest(
+        log.info("Using RTSP control URI: $controlUrl")
+
+        // -----------------------------
+        // STEP 2 — SETUP
+        // -----------------------------
+        val setupResp = sendRtspRequest(
             method = "SETUP",
-            uri = controlUri,
-            extraHeaders = mapOf("Transport" to transport)
+            uri = controlUrl,
+            headers = mapOf(
+                "Transport" to "RTP/AVP/TCP;unicast;interleaved=0-1",
+                "User-Agent" to "KotlinRTSP/1.0"
+            )
         )
 
-        // Example: Session: 12345678;timeout=60
-        val sessionHeader = resp.headers["session"]
-        if (sessionHeader != null) {
-            sessionId = sessionHeader.substringBefore(';').trim()
-            log.info("RTSP session id: {}", sessionId)
+        if (setupResp.code != 200) {
+            throw IllegalStateException("SETUP failed (${setupResp.code})")
         }
 
-        return resp
-    }
+        sessionId = setupResp.headers["Session"]?.substringBefore(";")?.trim()
+        log.info("RTSP session id: $sessionId")
 
-    fun play(controlUri: String): RtspResponse =
-        sendRequest(
+        // -----------------------------
+        // STEP 3 — PLAY
+        // -----------------------------
+        val playResp = sendRtspRequest(
             method = "PLAY",
-            uri = controlUri,
-            extraHeaders = emptyMap()
+            uri = controlUrl,
+            headers = mapOf(
+                "Session" to sessionId!!,
+                "Range" to "npt=0-",
+                "User-Agent" to "KotlinRTSP/1.0"
+            )
         )
 
-    /**
-     * Full handshake and RTP loop:
-     *  - DESCRIBE (get SDP)
-     *  - SETUP (TCP interleaved RTP)
-     *  - PLAY
-     *  - Then read interleaved RTP packets and hand them to the callback.
-     */
-    fun startStreaming(onRtpPacket: (RtpPacket) -> Unit) {
-        connectIfNeeded()
-
-        // 1) DESCRIBE
-        val describeResp = describe()
-        if (!describeResp.statusLine.contains("200")) {
-            throw IllegalStateException("DESCRIBE failed: ${describeResp.statusLine}")
-        }
-
-        val controlUri = extractControlUrl(describeResp.body, requestUri)
-        log.info("Using RTSP control URI: {}", controlUri)
-
-        // 2) SETUP
-        val setupResp = setup(controlUri)
-        if (!setupResp.statusLine.contains("200")) {
-            throw IllegalStateException("SETUP failed: ${setupResp.statusLine}")
-        }
-
-        // 3) PLAY
-        val playResp = play(controlUri)
-        if (!playResp.statusLine.contains("200")) {
-            throw IllegalStateException("PLAY failed: ${playResp.statusLine}")
+        if (playResp.code != 200) {
+            throw IllegalStateException("PLAY failed (${playResp.code})")
         }
 
         log.info("RTSP PLAY OK, starting to read interleaved RTP packets")
+    }
 
-        // 4) Read RTP frames from same TCP socket
-        val s = socket ?: throw IllegalStateException("Socket is null after PLAY")
-        val input = s.getInputStream()
+    fun readRtpLoop(onFrame: (ByteArray) -> Unit) {
+        try {
+            while (true) {
+                val first = rawInput.read()
+                if (first == -1) throw RtspDisconnectedException()
+                if (first != 0x24) continue // $ = interleaved RTP
+
+                val channel = rawInput.read()
+                val sizeHi = rawInput.read()
+                val sizeLo = rawInput.read()
+
+                if (channel < 0 || sizeHi < 0 || sizeLo < 0)
+                    throw RtspDisconnectedException()
+
+                val packetSize = (sizeHi shl 8) or sizeLo
+                val packet = ByteArray(packetSize)
+                rawInput.read(packet)
+
+                log.debug("RTP packet: channel=$channel size=$packetSize")
+
+                onFrame(packet)
+            }
+        } catch (e: Exception) {
+            throw RtspDisconnectedException()
+        }
+    }
+
+    fun close() {
+        runCatching { socket.close() }
+    }
+
+    private fun basicAuthHeader(): String {
+        val encoded = Base64.getEncoder()
+            .encodeToString("$username:$password".toByteArray())
+        return "Basic $encoded"
+    }
+
+    private fun extractControlTrack(sdp: String): String {
+        return sdp.lineSequence()
+            .firstOrNull { it.startsWith("a=control:") }
+            ?.substringAfter("a=control:")
+            ?.trim()
+            ?: "track1"
+    }
+
+    private fun sendRtspRequest(
+        method: String,
+        uri: String,
+        headers: Map<String, String>
+    ): RtspResponse {
+
+        val seq = cseq++
+        val sb = StringBuilder()
+        sb.append("$method $uri RTSP/1.0\r\n")
+        sb.append("CSeq: $seq\r\n")
+
+        headers.forEach { (k, v) -> sb.append("$k: $v\r\n") }
+        sb.append("\r\n")
+
+        log.debug("RTSP REQUEST →\n$sb")
+
+        writer.print(sb.toString())
+        writer.flush()
+
+        return readRtspResponse()
+    }
+
+    private fun readRtspResponse(): RtspResponse {
+        val statusLine = reader.readLine() ?: throw RtspDisconnectedException()
+
+        val parts = statusLine.split(" ", limit = 3)
+        val code = parts[1].toInt()
+        val statusText = parts.getOrNull(2) ?: ""
+
+        val headers = mutableMapOf<String, String>()
+        var body: String? = null
 
         while (true) {
-            val marker = input.read()
-            if (marker == -1) {
-                log.warn("RTSP/RTP TCP stream closed by camera")
-                break
-            }
-
-            if (marker != '$'.code) {
-                // Could be RTSP keepalive or junk; for now we just ignore until '$'
-                continue
-            }
-
-            val channel = input.read()
-            if (channel == -1) break
-
-            val sizeHi = input.read()
-            val sizeLo = input.read()
-            if (sizeHi == -1 || sizeLo == -1) break
-
-            val size = (sizeHi shl 8) or sizeLo
-            if (size <= 0) continue
-
-            val buf = ByteArray(size)
-            var read = 0
-            while (read < size) {
-                val n = input.read(buf, read, size - read)
-                if (n == -1) break
-                read += n
-            }
-
-            if (read == size) {
-                onRtpPacket(RtpPacket(channel = channel, payload = buf))
-            } else {
-                log.warn("Short read on RTP packet: expected {}, got {}", size, read)
-                break
-            }
+            val line = reader.readLine() ?: throw RtspDisconnectedException()
+            if (line.isBlank()) break
+            val idx = line.indexOf(":")
+            if (idx > 0) headers[line.substring(0, idx)] = line.substring(idx + 1).trim()
         }
+
+        val contentLen = headers["Content-Length"]?.toIntOrNull()
+        if (contentLen != null && contentLen > 0) {
+            val chars = CharArray(contentLen)
+            val n = reader.read(chars)
+            body = String(chars, 0, n)
+        }
+
+        log.debug("RTSP RESPONSE ←\n$statusLine\n$headers\n\n$body")
+
+        return RtspResponse(code, statusText, headers, body)
     }
 }

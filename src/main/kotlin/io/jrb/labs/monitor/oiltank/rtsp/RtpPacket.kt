@@ -24,32 +24,11 @@
 
 package io.jrb.labs.monitor.oiltank.rtsp
 
-data class RtspUrl(
-    val username: String? = null,
-    val password: String? = null,
-    val host: String,
-    val port: Int = 554,
-    val path: String
-) {
-
-    /**
-     * The complete RTSP URL including credentials if present.
-     *
-     * Examples:
-     *   rtsp://10.10.30.249:554/stream1
-     *   rtsp://user:pass@10.10.30.249:554/stream1
-     */
-    val fullUrl: String
-        get() {
-            val userInfo = when {
-                username != null && password != null -> "${username}:${password}@"
-                username != null                     -> "${username}@"
-                else                                 -> ""
-            }
-            return "rtsp://${userInfo}${host}:${port}${path}"
-        }
-
-    override fun toString(): String =
-        "RtspUrl(username=$username, password=$password, host=$host, port=$port, path=$path)"
-}
-
+data class RtpPacket(
+    val channel: Int,
+    val sequenceNumber: Int,
+    val timestamp: Long,
+    val payloadType: Int,
+    val marker: Boolean,
+    val payload: ByteArray
+)
