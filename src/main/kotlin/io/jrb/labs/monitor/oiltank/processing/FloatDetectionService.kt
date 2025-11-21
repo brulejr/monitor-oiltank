@@ -24,28 +24,48 @@
 
 package io.jrb.labs.monitor.oiltank.processing
 
+import io.jrb.labs.monitor.oiltank.decoder.FloatDetector
 import io.jrb.labs.monitor.oiltank.events.EventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.jrb.labs.monitor.oiltank.model.FloatPosition
 import jakarta.annotation.PostConstruct
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
 
 @Service
 class FloatDetectionService(
-    private val eventBus: EventBus
+    private val eventBus: EventBus,
+    private val floatDetector: FloatDetector = FloatDetector()
 ) {
+
+    private val log = LoggerFactory.getLogger(FloatDetectionService::class.java)
 
     @PostConstruct
     fun listen() {
         eventBus.events()
             .ofType(OilEvent.SnapshotReceived::class.java)
-            .flatMap { detectFloat(it.bytes) }
-            .subscribe { eventBus.publish(OilEvent.FloatPositionDetected(it)) }
+            .flatMap { event ->
+                detectFloat(event.bytes)
+                    .map { pos -> event to pos }
+            }
+            .subscribe { (_, pos) ->
+                log.info(
+                    "Float detected at ${"%.2f".format(pos.relativeHeight * 100)}% full"
+                )
+                eventBus.publish(OilEvent.FloatPositionDetected(pos))
+            }
     }
 
-    fun detectFloat(image: ByteArray): Mono<FloatPosition> {
-        // TODO: add OpenCV float detection
-        return Mono.just(FloatPosition(0.72)) // 72% up the tank
+    fun detectFloat(imageBytes: ByteArray): Mono<FloatPosition> {
+        return Mono.fromCallable {
+            val height = floatDetector.detect(imageBytes)
+            if (height == null) {
+                log.warn("Float detection returned null — using 0.0")
+                FloatPosition(0.0)
+            } else {
+                FloatPosition(height.toDouble())
+            }
+        }
     }
 }

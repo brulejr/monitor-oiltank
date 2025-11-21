@@ -22,62 +22,132 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.ingest
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2025 Jon Brule <brulejr@gmail.com>
+ */
 
-import io.jrb.labs.commons.logging.LoggerDelegate
+package io.jrb.labs.monitor.oiltank.ingestion
+
 import io.jrb.labs.monitor.oiltank.config.CameraDatafill
-import io.jrb.labs.monitor.oiltank.rtsp.RtspClient
-import io.jrb.labs.monitor.oiltank.rtsp.RtspDisconnectedException
-import io.jrb.labs.monitor.oiltank.rtsp.parseRtspUrl
+import io.jrb.labs.monitor.oiltank.events.EventBus
+import io.jrb.labs.monitor.oiltank.events.OilEvent
 import jakarta.annotation.PostConstruct
+import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.*
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-import kotlin.concurrent.thread
+import java.io.ByteArrayInputStream
+import java.nio.file.Files
+import java.nio.file.Path
+import javax.imageio.ImageIO
+import kotlin.time.Duration.Companion.seconds
 
+/**
+ * Simpler implementation:
+ *
+ * - Uses the system `ffmpeg` binary to grab a single JPEG frame from the RTSP stream.
+ * - Runs in a coroutine loop with [CameraDatafill.intervalSeconds].
+ * - Saves the latest snapshot to /tmp/oiltank-latest.jpg (for now).
+ *
+ * This **does not** use the RTSP/RTP/H.264 pipeline at all. It’s just a
+ * reliable baseline that works end-to-end.
+ */
 @Service
 class CameraSnapshotService(
-    private val datafill: CameraDatafill
+    private val cameraDatafill: CameraDatafill,
+    private val eventBus: EventBus      // 🔥 add this
 ) {
 
-    private val log by LoggerDelegate()
+    private val log = LoggerFactory.getLogger(CameraSnapshotService::class.java)
 
-    @Volatile private var isRunning = true
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val snapshotPath: Path = Path.of("/tmp/oiltank-latest.jpg")
 
     @PostConstruct
     fun start() {
-        log.info("Starting CameraSnapshotService RTSP loop")
-
-        thread(start = true, isDaemon = true, name = "rtsp-loop") {
-            runRtspLoop()
+        log.info("Starting CameraSnapshotService FFmpeg snapshot loop")
+        scope.launch {
+            runSnapshotLoop()
         }
     }
 
-    private fun runRtspLoop() {
-        val rtspUrl = parseRtspUrl(rawUrl = datafill.snapshotUrl)
+    @PreDestroy
+    fun stop() {
+        log.info("Stopping CameraSnapshotService FFmpeg snapshot loop")
+        scope.cancel()
+    }
 
-        while (isRunning) {
+    private suspend fun runSnapshotLoop() {
+        val interval = cameraDatafill.intervalSeconds.coerceAtLeast(5)
+        while (currentCoroutineContext().isActive) {
             try {
-                log.info("Opening RTSP streaming session")
-
-                val client = RtspClient(
-                    rtsp = rtspUrl,
-                    username = datafill.username,
-                    password = datafill.password
-                )
-
-                client.open()
-
-                client.readRtpLoop { packet ->
-                    // TODO: Extract H264 → JPEG → Float detection
-                    log.debug("Received RTP packet ${packet.size} bytes")
-                }
-
-            } catch (e: RtspDisconnectedException) {
-                log.warn("RTSP connection dropped: ${e.message} — reconnecting in 2s")
-                Thread.sleep(2000)
+                captureSnapshot()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                log.error("RTSP error: ${e.message}", e)
-                Thread.sleep(3000)
+                log.warn("Error capturing snapshot from camera", e)
+            }
+
+            delay(interval.seconds)
+        }
+    }
+
+    private suspend fun captureSnapshot() = withContext(Dispatchers.IO) {
+        val rtspUrl = cameraDatafill.snapshotUrl
+        log.info("Capturing snapshot via FFmpeg from RTSP URL: {}", rtspUrl)
+
+        val pb = ProcessBuilder(
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-rtsp_transport", "tcp",
+            "-i", rtspUrl,
+            "-frames:v", "1",
+            "-f", "mjpeg",
+            "pipe:1"
+        )
+        pb.redirectErrorStream(true)
+
+        val process = pb.start()
+
+        val imageBytes = process.inputStream.readBytes()
+        val finished = process.waitFor()
+
+        if (finished != 0) {
+            log.warn("FFmpeg exited with code {} while capturing snapshot", finished)
+            if (imageBytes.isNotEmpty()) {
+                log.debug("FFmpeg output:\n{}", String(imageBytes))
+            }
+            return@withContext
+        }
+
+        if (imageBytes.isEmpty()) {
+            log.warn("FFmpeg produced no image data")
+            return@withContext
+        }
+
+        // Validate JPEG
+        ByteArrayInputStream(imageBytes).use { bais ->
+            val img = ImageIO.read(bais)
+            if (img == null) {
+                log.warn("FFmpeg output was not a valid image")
+                return@withContext
             }
         }
+
+        // Save for quick debugging
+        Files.write(snapshotPath, imageBytes)
+        log.info(
+            "Saved latest snapshot ({} bytes) to {}",
+            imageBytes.size,
+            snapshotPath.toAbsolutePath()
+        )
+
+        // 🔥🔥🔥 Publish snapshot into the event pipeline
+        eventBus.publish(OilEvent.SnapshotReceived(imageBytes))
+        log.info("Published snapshot to EventBus ({} bytes)", imageBytes.size)
     }
 }
