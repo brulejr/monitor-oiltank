@@ -24,6 +24,7 @@
 
 package io.jrb.labs.monitor.oiltank.processing
 
+import io.jrb.labs.monitor.oiltank.config.TankLevelCalibrationDatafill
 import io.jrb.labs.monitor.oiltank.decoder.FloatDetector
 import io.jrb.labs.monitor.oiltank.events.EventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
@@ -32,13 +33,18 @@ import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
+import kotlin.math.roundToInt
 
 @Service
 class FloatDetectionService(
-    private val eventBus: EventBus
+    private val eventBus: EventBus,
+    private val datafill: TankLevelCalibrationDatafill
 ) {
 
     private val log = LoggerFactory.getLogger(FloatDetectionService::class.java)
+
+    /** Last smoothed tank percent, used for hysteresis */
+    private var lastPercent: Double? = null
 
     @PostConstruct
     fun listen() {
@@ -47,26 +53,61 @@ class FloatDetectionService(
             .flatMap { event ->
                 detectFloat(event.bytes).map { pos -> event to pos }
             }
-            .subscribe { (_, pos) ->
+            .subscribe { (event, pos) ->
                 log.info("Float detected: ${"%.1f".format(pos.relativeHeight * 100)}%")
                 eventBus.publish(OilEvent.FloatPositionDetected(pos))
             }
     }
 
     /**
-     * Run OpenCV float detection.
+     * Apply datafill + smoothing to raw detector output.
      */
     fun detectFloat(bytes: ByteArray): Mono<FloatPosition> {
         return Mono.fromCallable {
-            val result = FloatDetector.detect(bytes)   // <—— correct call
+            val raw = FloatDetector.detect(bytes)
+            val safeRaw = raw ?: 0.0
 
-            if (result == null) {
-                log.warn("Float detection returned null — using 0.0")
-                FloatPosition(0.0)
-            } else {
-                FloatPosition(result)                 // <—— already Double
-            }
+            val calibrated = calibrate(safeRaw)
+            val smoothed = smooth(calibrated)
+
+            log.info(
+                "FloatDetection raw=${"%.4f".format(safeRaw)}, " +
+                        "calibrated=${"%.4f".format(calibrated)}, " +
+                        "smoothed=${"%.1f".format(smoothed * 100)}%"
+            )
+
+            FloatPosition(smoothed)
         }
+    }
+
+    /**
+     * Convert raw float height into real-world percent using config.
+     */
+    private fun calibrate(raw: Double): Double {
+        val scaled = (raw - datafill.rawEmpty) /
+                (datafill.rawFull - datafill.rawEmpty)
+
+        return scaled.coerceIn(0.0, 1.0)
+    }
+
+    /**
+     * Smooth jitter (low-pass filter + optional quantization)
+     */
+    private fun smooth(current: Double): Double {
+        val prev = lastPercent
+
+        val blended = if (prev == null) {
+            current
+        } else {
+            0.8 * prev + 0.2 * current   // low-pass smoothing
+        }
+
+        // Optional: snap to nearest 2.5% to remove flicker
+        val snapped = ((blended * 100) / 2.5).roundToInt() * 2.5
+        val result = (snapped / 100.0).coerceIn(0.0, 1.0)
+
+        lastPercent = result
+        return result
     }
 }
 
