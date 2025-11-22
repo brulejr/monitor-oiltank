@@ -24,7 +24,6 @@
 
 package io.jrb.labs.monitor.oiltank.processing
 
-import io.jrb.labs.monitor.oiltank.config.TankLevelCalibrationDatafill
 import io.jrb.labs.monitor.oiltank.decoder.FloatDetector
 import io.jrb.labs.monitor.oiltank.events.EventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
@@ -33,7 +32,6 @@ import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
-import kotlin.math.roundToInt
 
 @Service
 class FloatDetectionService(
