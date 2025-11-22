@@ -24,122 +24,137 @@
 
 package io.jrb.labs.monitor.oiltank.decoder
 
-import org.bytedeco.javacpp.Loader
-import org.bytedeco.opencv.global.opencv_core.CV_8U
-import org.bytedeco.opencv.global.opencv_imgcodecs.IMREAD_COLOR
-import org.bytedeco.opencv.global.opencv_imgcodecs.imdecode
-import org.bytedeco.opencv.global.opencv_imgproc.CHAIN_APPROX_SIMPLE
-import org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGR2GRAY
-import org.bytedeco.opencv.global.opencv_imgproc.Canny
-import org.bytedeco.opencv.global.opencv_imgproc.GaussianBlur
-import org.bytedeco.opencv.global.opencv_imgproc.RETR_EXTERNAL
-import org.bytedeco.opencv.global.opencv_imgproc.boundingRect
-import org.bytedeco.opencv.global.opencv_imgproc.cvtColor
-import org.bytedeco.opencv.global.opencv_imgproc.findContours
-import org.bytedeco.opencv.opencv_core.Mat
-import org.bytedeco.opencv.opencv_core.MatVector
-import org.bytedeco.opencv.opencv_core.Rect
-import org.bytedeco.opencv.opencv_core.Size
-import org.slf4j.LoggerFactory
+import org.bytedeco.opencv.global.opencv_core.*
+import org.bytedeco.opencv.global.opencv_imgproc.*
+import org.bytedeco.opencv.global.opencv_imgcodecs.*
+import org.bytedeco.opencv.opencv_core.*
 
-class FloatDetector {
+import java.nio.file.Files
+import kotlin.math.max
+import kotlin.math.min
 
-    private val log = LoggerFactory.getLogger(FloatDetector::class.java)
-
-    companion object {
-        init {
-            // Ensure OpenCV natives are loaded once
-            Loader.load(Mat::class.java)
-        }
-    }
+object FloatDetector {
 
     /**
-     * @param imageBytes JPEG bytes from the camera
-     * @return float level as a relative height [0.0, 1.0], or null if detection fails
+     * Detect relative float position (0.0 = bottom, 1.0 = top)
      */
-    fun detect(imageBytes: ByteArray): Float? {
-        if (imageBytes.isEmpty()) {
-            log.warn("Empty image bytes passed to FloatDetector")
-            return null
-        }
+    fun detect(imageBytes: ByteArray): Double {
+        // --------------------------------------------------------------------
+        // 1. Decode JPEG from bytes using a temp file (avoids BytePointer mess)
+        // --------------------------------------------------------------------
+        val tmpFile = Files.createTempFile("float-detector-", ".jpg")
+        try {
+            Files.write(tmpFile, imageBytes)
 
-        // Wrap bytes in a 1×N CV_8U Mat and copy the JPEG data into it.
-        val buf = Mat(1, imageBytes.size, CV_8U)
-        val dataPtr = buf.data()
-        // IMPORTANT: use BytePointer.put(byte[], int, int), NOT asByteBuffer()
-        dataPtr.put(imageBytes, 0, imageBytes.size)
-
-        // Decode JPEG -> BGR Mat
-        val frame = imdecode(buf, IMREAD_COLOR)
-        if (frame == null || frame.empty()) {
-            log.warn("Failed to decode JPEG frame")
-            buf.release()
-            return null
-        }
-
-        // Convert to grayscale
-        val gray = Mat()
-        cvtColor(frame, gray, COLOR_BGR2GRAY)
-
-        // Blur to reduce noise
-        val blurred = Mat()
-        GaussianBlur(gray, blurred, Size(5, 5), 0.0)
-
-        // Edge detection
-        val edges = Mat()
-        Canny(blurred, edges, 50.0, 150.0)
-
-        // Find external contours
-        val contours = MatVector()
-        findContours(edges, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE)
-
-        if (contours.size() == 0L) {
-            log.warn("No contours found in snapshot")
-            cleanup(frame, gray, blurred, edges, buf)
-            return null
-        }
-
-        // Look for a tall, thin contour -> likely the float
-        var bestRect: Rect? = null
-        var bestHeight = 0
-
-        for (i in 0 until contours.size()) {
-            val contour = contours[i]
-            val rect = boundingRect(contour)
-
-            // Heuristic: height at least 2x width
-            if (rect.height() > rect.width() * 2) {
-                if (rect.height() > bestHeight) {
-                    bestHeight = rect.height()
-                    bestRect = rect
-                }
+            val bgr = imread(tmpFile.toString(), IMREAD_COLOR)
+            if (bgr == null || bgr.empty()) {
+                return 0.0
             }
-        }
 
-        val floatRect = bestRect
-        if (floatRect == null) {
-            log.warn("No candidate float contour found")
-            cleanup(frame, gray, blurred, edges, buf)
-            return null
-        }
+            // ----------------------------------------------------------------
+            // 2. Grayscale + histogram equalization for contrast
+            // ----------------------------------------------------------------
+            val gray = Mat()
+            cvtColor(bgr, gray, COLOR_BGR2GRAY)
 
-        val y = floatRect.y().toFloat()
-        val h = frame.rows().toFloat()
+            val grayEq = Mat()
+            equalizeHist(gray, grayEq)
 
-        // Convert pixel Y → tank level (0 at bottom, 1 at top)
-        val level = (1f - (y / h)).coerceIn(0f, 1f)
+            val w = grayEq.cols()
+            val h = grayEq.rows()
+            if (w <= 0 || h <= 0) {
+                return 0.0
+            }
 
-        log.debug("Float detected at relative height {}", level)
+            // ----------------------------------------------------------------
+            // 3. Define ROI around the gauge (center-ish, tuned later)
+            // ----------------------------------------------------------------
+            val roiWidth = 100
+            val roiHeight = 300
 
-        cleanup(frame, gray, blurred, edges, buf)
-        return level
-    }
+            val roiX = max(0, w / 2 - roiWidth / 2)
+            val roiY = max(0, h / 2 - roiHeight / 2)
+            val roiW = min(roiWidth, w - roiX)
+            val roiH = min(roiHeight, h - roiY)
 
-    private fun cleanup(vararg mats: Mat) {
-        mats.forEach { mat ->
+            if (roiW <= 0 || roiH <= 0) {
+                return 0.0
+            }
+
+            val roi = Rect(roiX, roiY, roiW, roiH)
+            val gauge = Mat(grayEq, roi)
+
+            // ----------------------------------------------------------------
+            // 4. Blur + Otsu threshold
+            // ----------------------------------------------------------------
+            val blurred = Mat()
+            GaussianBlur(gauge, blurred, Size(5, 5), 0.0)
+
+            val thresh = Mat()
+            threshold(
+                blurred,
+                thresh,
+                0.0,
+                255.0,
+                THRESH_BINARY or THRESH_OTSU
+            )
+
+            // If mostly white, invert so float becomes bright
+            val meanScalar = mean(thresh)
+            val brightness = meanScalar.get(0)
+            if (brightness > 127.0) {
+                bitwise_not(thresh, thresh)
+            }
+
+            // ----------------------------------------------------------------
+            // 5. Find contours in the ROI
+            // ----------------------------------------------------------------
+            val contours = MatVector()
+            val hierarchy = Mat()
+            findContours(
+                thresh,
+                contours,
+                hierarchy,
+                RETR_EXTERNAL,
+                CHAIN_APPROX_SIMPLE
+            )
+
+            if (contours.size() == 0L) {
+                return 0.0
+            }
+
+            // ----------------------------------------------------------------
+            // 6. Pick the largest contour as the float / plunger body
+            // ----------------------------------------------------------------
+            var maxArea = 0.0
+            var bestRect: Rect? = null
+
+            var i = 0L
+            while (i < contours.size()) {
+                val c = contours.get(i)
+                val area = contourArea(c)
+                if (area > maxArea) {
+                    maxArea = area
+                    bestRect = boundingRect(c)
+                }
+                i++
+            }
+
+            if (bestRect == null) {
+                return 0.0
+            }
+
+            // ----------------------------------------------------------------
+            // 7. Compute relative height of float (0 bottom, 1 top)
+            // ----------------------------------------------------------------
+            val floatCenterY = bestRect.y() + bestRect.height() / 2.0
+            val relative = 1.0 - (floatCenterY / gauge.rows().toDouble())
+
+            return relative.coerceIn(0.0, 1.0)
+        } finally {
             try {
-                mat.release()
-            } catch (_: Throwable) {
+                Files.deleteIfExists(tmpFile)
+            } catch (_: Exception) {
                 // ignore
             }
         }

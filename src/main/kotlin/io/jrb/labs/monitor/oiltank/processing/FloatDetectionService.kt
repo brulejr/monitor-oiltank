@@ -35,8 +35,7 @@ import reactor.core.publisher.Mono
 
 @Service
 class FloatDetectionService(
-    private val eventBus: EventBus,
-    private val floatDetector: FloatDetector = FloatDetector()
+    private val eventBus: EventBus
 ) {
 
     private val log = LoggerFactory.getLogger(FloatDetectionService::class.java)
@@ -46,26 +45,28 @@ class FloatDetectionService(
         eventBus.events()
             .ofType(OilEvent.SnapshotReceived::class.java)
             .flatMap { event ->
-                detectFloat(event.bytes)
-                    .map { pos -> event to pos }
+                detectFloat(event.bytes).map { pos -> event to pos }
             }
             .subscribe { (_, pos) ->
-                log.info(
-                    "Float detected at ${"%.2f".format(pos.relativeHeight * 100)}% full"
-                )
+                log.info("Float detected: ${"%.1f".format(pos.relativeHeight * 100)}%")
                 eventBus.publish(OilEvent.FloatPositionDetected(pos))
             }
     }
 
-    fun detectFloat(imageBytes: ByteArray): Mono<FloatPosition> {
+    /**
+     * Run OpenCV float detection.
+     */
+    fun detectFloat(bytes: ByteArray): Mono<FloatPosition> {
         return Mono.fromCallable {
-            val height = floatDetector.detect(imageBytes)
-            if (height == null) {
+            val result = FloatDetector.detect(bytes)   // <—— correct call
+
+            if (result == null) {
                 log.warn("Float detection returned null — using 0.0")
                 FloatPosition(0.0)
             } else {
-                FloatPosition(height.toDouble())
+                FloatPosition(result)                 // <—— already Double
             }
         }
     }
 }
+
