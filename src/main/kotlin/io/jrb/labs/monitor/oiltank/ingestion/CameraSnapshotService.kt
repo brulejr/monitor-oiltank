@@ -56,7 +56,7 @@ import kotlin.time.Duration.Companion.seconds
  */
 @Service
 class CameraSnapshotService(
-    private val cameraDatafill: CameraDatafill,
+    private val datafill: CameraDatafill,
     private val eventBus: EventBus      // 🔥 add this
 ) {
 
@@ -81,7 +81,7 @@ class CameraSnapshotService(
     }
 
     private suspend fun runSnapshotLoop() {
-        val interval = cameraDatafill.intervalSeconds.coerceAtLeast(5)
+        val interval = datafill.intervalSeconds.coerceAtLeast(5)
         while (currentCoroutineContext().isActive) {
             try {
                 captureSnapshot()
@@ -96,7 +96,7 @@ class CameraSnapshotService(
     }
 
     private suspend fun captureSnapshot() = withContext(Dispatchers.IO) {
-        val rtspUrl = cameraDatafill.snapshotUrl
+        val rtspUrl = datafill.snapshotUrl
         log.info("Capturing snapshot via FFmpeg from RTSP URL: {}", rtspUrl)
 
         val pb = ProcessBuilder(

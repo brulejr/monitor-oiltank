@@ -25,17 +25,9 @@
 package io.jrb.labs.monitor.oiltank.config
 
 import org.springframework.boot.context.properties.ConfigurationProperties
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 
 @ConfigurationProperties(prefix = "application.camera")
 data class CameraDatafill(
     val snapshotUrl: String,
-    val username: String,
-    val password: String,
     val intervalSeconds: Long
-) {
-    val decodedUsername: String get() = URLDecoder.decode(username, StandardCharsets.UTF_8)
-    val decodedPassword: String get() = URLDecoder.decode(password, StandardCharsets.UTF_8)
-    val decodedUrl: String get() = URLDecoder.decode(snapshotUrl, StandardCharsets.UTF_8)
-}
+)
