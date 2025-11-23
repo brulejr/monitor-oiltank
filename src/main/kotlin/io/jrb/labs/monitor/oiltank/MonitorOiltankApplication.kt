@@ -32,7 +32,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.web.reactive.function.client.WebClient
 
 @SpringBootApplication
-@ConfigurationPropertiesScan( basePackages = ["io.jrb.labs.monitor.oiltank.config"])
+@ConfigurationPropertiesScan( basePackages = ["io.jrb.labs.monitor.oiltank"])
 class MonitorOiltankApplication {
 
     private val log = LoggerFactory.getLogger(MonitorOiltankApplication::class.java)

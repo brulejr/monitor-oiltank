@@ -24,8 +24,8 @@
 
 package io.jrb.labs.monitor.oiltank.events
 
-import io.jrb.labs.monitor.oiltank.model.FloatPosition
-import io.jrb.labs.monitor.oiltank.model.TankLevel
+import io.jrb.labs.monitor.oiltank.detection.FloatPosition
+import io.jrb.labs.monitor.oiltank.processing.TankLevel
 
 sealed class OilEvent {
     data class SnapshotReceived(val bytes: ByteArray) : OilEvent()

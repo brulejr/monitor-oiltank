@@ -22,20 +22,22 @@
  * SOFTWARE.
  */
 
-/*
- * The MIT License (MIT)
- *
- * Copyright (c) 2025 Jon Brule <brulejr@gmail.com>
- */
-
 package io.jrb.labs.monitor.oiltank.ingestion
 
-import io.jrb.labs.monitor.oiltank.config.CameraDatafill
 import io.jrb.labs.monitor.oiltank.events.EventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.io.ByteArrayInputStream

@@ -24,11 +24,9 @@
 
 package io.jrb.labs.monitor.oiltank.processing
 
-import io.jrb.labs.monitor.oiltank.config.LevelThresholdDatafill
 import io.jrb.labs.monitor.oiltank.events.EventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
-import io.jrb.labs.monitor.oiltank.model.TankLevel
-import io.jrb.labs.monitor.oiltank.mqtt.MqttPublisher
+import io.jrb.labs.monitor.oiltank.publishing.MqttPublisher
 import jakarta.annotation.PostConstruct
 import org.springframework.stereotype.Service
 

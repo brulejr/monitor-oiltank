@@ -22,26 +22,17 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.controller
+package io.jrb.labs.monitor.oiltank.publishing
 
-import io.jrb.labs.monitor.oiltank.events.EventBus
-import io.jrb.labs.monitor.oiltank.events.OilEvent
-import io.jrb.labs.monitor.oiltank.model.TankLevel
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RestController
-import reactor.core.publisher.Flux
+import org.springframework.boot.context.properties.ConfigurationProperties
 
-@RestController
-@RequestMapping("/api/tank")
-class OilTankController(
-    private val eventBus: EventBus
+@ConfigurationProperties(prefix = "application.mqtt")
+data class MqttDatafill(
+    val brokerUrl: String,
+    val topic: MqttTopics
 ) {
-
-    @GetMapping("/stream")
-    fun streamLevels(): Flux<TankLevel> =
-        eventBus.events()
-            .ofType(OilEvent.LevelCalculated::class.java)
-            .map { it.level }
-
+    data class MqttTopics(
+        val level: String,
+        val alert: String
+    )
 }

@@ -22,6 +22,30 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.model
+package io.jrb.labs.monitor.oiltank.publishing
 
-data class FloatPosition(val relativeHeight: Double)
+import org.eclipse.paho.client.mqttv3.MqttClient
+import org.springframework.stereotype.Service
+
+@Service
+class MqttPublisher(
+    datafill: MqttDatafill
+) {
+    private val client = MqttClient(datafill.brokerUrl, MqttClient.generateClientId())
+
+    init {
+        client.connect()
+    }
+
+    private val levelTopic = datafill.topic.level
+    private val alertTopic = datafill.topic.alert
+
+    fun publishLevel(percent: Int) {
+        client.publish(levelTopic, percent.toString().toByteArray(), 1, false)
+    }
+
+    fun publishAlert(message: String) {
+        client.publish(alertTopic, message.toByteArray(), 1, false)
+    }
+
+}

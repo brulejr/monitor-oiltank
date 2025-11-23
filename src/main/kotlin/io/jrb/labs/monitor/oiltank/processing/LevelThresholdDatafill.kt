@@ -22,13 +22,12 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.config
+package io.jrb.labs.monitor.oiltank.processing
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 
-@ConfigurationProperties(prefix = "application.camera")
-data class CameraDatafill(
-    val snapshotUrl: String,
-    val snapshotPath: String = "/tmp/oiltank-latest.jpg",
-    val intervalSeconds: Long
+@ConfigurationProperties(prefix = "application.level")
+data class LevelThresholdDatafill(
+    val minPercent: Int,
+    val maxPercent: Int
 )

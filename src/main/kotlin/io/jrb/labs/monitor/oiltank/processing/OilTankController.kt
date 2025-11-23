@@ -22,12 +22,25 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.config
+package io.jrb.labs.monitor.oiltank.processing
 
-import org.springframework.boot.context.properties.ConfigurationProperties
+import io.jrb.labs.monitor.oiltank.events.EventBus
+import io.jrb.labs.monitor.oiltank.events.OilEvent
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RestController
+import reactor.core.publisher.Flux
 
-@ConfigurationProperties(prefix = "application.level")
-data class LevelThresholdDatafill(
-    val minPercent: Int,
-    val maxPercent: Int
-)
+@RestController
+@RequestMapping("/api/tank")
+class OilTankController(
+    private val eventBus: EventBus
+) {
+
+    @GetMapping("/stream")
+    fun streamLevels(): Flux<TankLevel> =
+        eventBus.events()
+            .ofType(OilEvent.LevelCalculated::class.java)
+            .map { it.level }
+
+}

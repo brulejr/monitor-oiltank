@@ -22,6 +22,13 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.model
+package io.jrb.labs.monitor.oiltank.ingestion
 
-data class TankLevel(val percent: Int)
+import org.springframework.boot.context.properties.ConfigurationProperties
+
+@ConfigurationProperties(prefix = "application.camera")
+data class CameraDatafill(
+    val snapshotUrl: String,
+    val snapshotPath: String = "/tmp/oiltank-latest.jpg",
+    val intervalSeconds: Long
+)

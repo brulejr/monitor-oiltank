@@ -22,12 +22,15 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.decoder
+package io.jrb.labs.monitor.oiltank.detection
 
-import org.bytedeco.opencv.global.opencv_core.*
-import org.bytedeco.opencv.global.opencv_imgproc.*
-import org.bytedeco.opencv.global.opencv_imgcodecs.*
-import org.bytedeco.opencv.opencv_core.*
+import org.bytedeco.opencv.global.opencv_core
+import org.bytedeco.opencv.global.opencv_imgcodecs
+import org.bytedeco.opencv.global.opencv_imgproc
+import org.bytedeco.opencv.opencv_core.Mat
+import org.bytedeco.opencv.opencv_core.MatVector
+import org.bytedeco.opencv.opencv_core.Rect
+import org.bytedeco.opencv.opencv_core.Size
 import java.nio.file.Files
 import kotlin.math.max
 import kotlin.math.min
@@ -46,15 +49,15 @@ object FloatDetector {
         val tmp = Files.createTempFile("float-detector-", ".jpg")
         try {
             Files.write(tmp, imageBytes)
-            val bgr = imread(tmp.toString(), IMREAD_COLOR)
+            val bgr = opencv_imgcodecs.imread(tmp.toString(), opencv_imgcodecs.IMREAD_COLOR)
             if (bgr == null || bgr.empty()) return 0.0
 
             // --- Convert to grayscale and equalize ---
             val gray = Mat()
-            cvtColor(bgr, gray, COLOR_BGR2GRAY)
+            opencv_imgproc.cvtColor(bgr, gray, opencv_imgproc.COLOR_BGR2GRAY)
 
             val grayEq = Mat()
-            equalizeHist(gray, grayEq)
+            opencv_imgproc.equalizeHist(gray, grayEq)
 
             val w = grayEq.cols()
             val h = grayEq.rows()
@@ -77,27 +80,33 @@ object FloatDetector {
 
             // --- Blur + threshold ---
             val blurred = Mat()
-            GaussianBlur(gauge, blurred, Size(5, 5), 0.0)
+            opencv_imgproc.GaussianBlur(gauge, blurred, Size(5, 5), 0.0)
 
             val thresh = Mat()
-            threshold(blurred, thresh, 0.0, 255.0, THRESH_BINARY or THRESH_OTSU)
+            opencv_imgproc.threshold(
+                blurred,
+                thresh,
+                0.0,
+                255.0,
+                opencv_imgproc.THRESH_BINARY or opencv_imgproc.THRESH_OTSU
+            )
 
             // if mostly white, invert
-            val meanVal = mean(thresh).get(0)
+            val meanVal = opencv_core.mean(thresh).get(0)
             if (meanVal > 127.0) {
-                bitwise_not(thresh, thresh)
+                opencv_core.bitwise_not(thresh, thresh)
             }
 
             // --- Find contours ---
             val contours = MatVector()
             val hierarchy = Mat()
 
-            findContours(
+            opencv_imgproc.findContours(
                 thresh,
                 contours,
                 hierarchy,
-                RETR_EXTERNAL,
-                CHAIN_APPROX_SIMPLE
+                opencv_imgproc.RETR_EXTERNAL,
+                opencv_imgproc.CHAIN_APPROX_SIMPLE
             )
 
             if (contours.size() == 0L) return 0.0
@@ -108,10 +117,10 @@ object FloatDetector {
 
             for (i in 0 until contours.size()) {
                 val c = contours.get(i.toLong())
-                val area = contourArea(c)
+                val area = opencv_imgproc.contourArea(c)
                 if (area > maxArea) {
                     maxArea = area
-                    bestRect = boundingRect(c)
+                    bestRect = opencv_imgproc.boundingRect(c)
                 }
             }
 

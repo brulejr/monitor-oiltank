@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.config
+package io.jrb.labs.monitor.oiltank.detection
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 

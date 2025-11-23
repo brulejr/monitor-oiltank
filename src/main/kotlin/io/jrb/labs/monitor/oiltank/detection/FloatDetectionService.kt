@@ -22,13 +22,10 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.processing
+package io.jrb.labs.monitor.oiltank.detection
 
-import io.jrb.labs.monitor.oiltank.config.FloatDetectionDatafill
-import io.jrb.labs.monitor.oiltank.decoder.FloatDetector
 import io.jrb.labs.monitor.oiltank.events.EventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
-import io.jrb.labs.monitor.oiltank.model.FloatPosition
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer

@@ -22,17 +22,6 @@
  * SOFTWARE.
  */
 
-package io.jrb.labs.monitor.oiltank.config
+package io.jrb.labs.monitor.oiltank.detection
 
-import org.springframework.boot.context.properties.ConfigurationProperties
-
-@ConfigurationProperties(prefix = "application.mqtt")
-data class MqttDatafill(
-    val brokerUrl: String,
-    val topic: MqttTopics
-) {
-    data class MqttTopics(
-        val level: String,
-        val alert: String
-    )
-}
+data class FloatPosition(val relativeHeight: Double)
