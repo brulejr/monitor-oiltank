@@ -64,7 +64,7 @@ class CameraSnapshotService(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val snapshotPath: Path = Path.of("/tmp/oiltank-latest.jpg")
+    private val snapshotPath: Path = Path.of(datafill.snapshotPath)
 
     @PostConstruct
     fun start() {
