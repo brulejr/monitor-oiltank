@@ -1,6 +1,8 @@
+val ksbCommonsVersion: String by project
+
 plugins {
-	kotlin("jvm") version "2.0.21"
-	kotlin("plugin.spring") version "2.0.21"
+	kotlin("jvm") version "2.2.10"
+	kotlin("plugin.spring") version "2.2.10"
 	id("org.springframework.boot") version "3.5.7"
 	id("io.spring.dependency-management") version "1.1.7"
 }
@@ -17,25 +19,30 @@ java {
 
 repositories {
 	mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/brulejr/ksb-commons")
+        credentials {
+            // Local dev: ~/.gradle/gradle.properties
+            username = findProperty("gpr.user") as String?
+                ?: System.getenv("GITHUB_ACTOR")
+                        ?: "brulejr" // fallback, not super important
+
+            password = findProperty("gpr.key") as String?
+                ?: System.getenv("GITHUB_TOKEN")
+                        ?: System.getenv("GITHUB_PACKAGES_TOKEN")
+        }
+    }
 }
 
 dependencies {
-	implementation("org.springframework.boot:spring-boot-starter-actuator")
-	implementation("org.springframework.boot:spring-boot-starter-webflux")
-	implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
-	implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
-	implementation("org.jetbrains.kotlin:kotlin-reflect")
-	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
+    implementation(platform("io.jrb.labs:ksb-dependency-bom:$ksbCommonsVersion"))
 
-    // MQTT
+    implementation("io.jrb.labs:ksb-spring-boot-starter-reactive")
+
     implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
-
     implementation("org.bytedeco:opencv-platform:4.9.0-1.5.10")
 
-    testImplementation("org.springframework.boot:spring-boot-starter-test")
-	testImplementation("io.projectreactor:reactor-test")
-	testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
-	testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
+    testImplementation("io.jrb.labs:ksb-spring-boot-starter-reactive-test")
 
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
