@@ -24,12 +24,8 @@
 
 package io.jrb.labs.monitor.oiltank.events
 
-import io.jrb.labs.commons.eventbus.Event
-import io.jrb.labs.monitor.oiltank.detection.FloatPosition
-import io.jrb.labs.monitor.oiltank.processing.TankLevel
+import io.jrb.labs.commons.eventbus.EventBus
+import org.springframework.stereotype.Component
 
-sealed class OilEvent : Event {
-    data class SnapshotReceived(val bytes: ByteArray) : OilEvent()
-    data class FloatPositionDetected(val position: FloatPosition) : OilEvent()
-    data class LevelCalculated(val level: TankLevel) : OilEvent()
-}
+@Component
+class OilEventBus : EventBus<OilEvent>()
