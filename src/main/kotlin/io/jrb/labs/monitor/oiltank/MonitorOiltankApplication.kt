@@ -24,6 +24,8 @@
 
 package io.jrb.labs.monitor.oiltank
 
+import io.jrb.labs.commons.eventbus.SystemEventBus
+import io.jrb.labs.commons.eventbus.SystemEventLogger
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
@@ -48,6 +50,13 @@ class MonitorOiltankApplication {
         log.info("   - EventBus initialized")
         log.info("   - MQTT publishing enabled")
     }
+
+    @Bean
+    fun systemEventBus(): SystemEventBus = SystemEventBus()
+
+    @Bean
+    fun systemEventLogger(systemEventBus: SystemEventBus): SystemEventLogger = SystemEventLogger(systemEventBus)
+
 }
 
 fun main(args: Array<String>) {

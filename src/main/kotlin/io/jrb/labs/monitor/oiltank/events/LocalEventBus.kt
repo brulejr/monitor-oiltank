@@ -29,7 +29,7 @@ import reactor.core.publisher.Flux
 import reactor.core.publisher.Sinks
 
 @Component
-class EventBus {
+class LocalEventBus {
 
     private val sink = Sinks.many().multicast().onBackpressureBuffer<OilEvent>()
 

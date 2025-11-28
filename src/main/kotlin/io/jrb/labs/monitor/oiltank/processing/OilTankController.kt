@@ -24,7 +24,7 @@
 
 package io.jrb.labs.monitor.oiltank.processing
 
-import io.jrb.labs.monitor.oiltank.events.EventBus
+import io.jrb.labs.monitor.oiltank.events.LocalEventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
@@ -34,12 +34,12 @@ import reactor.core.publisher.Flux
 @RestController
 @RequestMapping("/api/tank")
 class OilTankController(
-    private val eventBus: EventBus
+    private val localEventBus: LocalEventBus
 ) {
 
     @GetMapping("/stream")
     fun streamLevels(): Flux<TankLevel> =
-        eventBus.events()
+        localEventBus.events()
             .ofType(OilEvent.LevelCalculated::class.java)
             .map { it.level }
 

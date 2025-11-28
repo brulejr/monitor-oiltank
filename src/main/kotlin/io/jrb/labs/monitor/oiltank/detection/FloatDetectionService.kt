@@ -24,7 +24,7 @@
 
 package io.jrb.labs.monitor.oiltank.detection
 
-import io.jrb.labs.monitor.oiltank.events.EventBus
+import io.jrb.labs.monitor.oiltank.events.LocalEventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.MeterRegistry
@@ -37,7 +37,7 @@ import kotlin.math.abs
 
 @Service
 class FloatDetectionService(
-    private val eventBus: EventBus,
+    private val localEventBus: LocalEventBus,
     private val datafill: FloatDetectionDatafill,
     private val meterRegistry: MeterRegistry
 ) {
@@ -79,17 +79,17 @@ class FloatDetectionService(
 
     @PostConstruct
     fun listen() {
-        eventBus.events()
+        localEventBus.events()
             .ofType(OilEvent.SnapshotReceived::class.java)
             .flatMap { event ->
                 detectFloat(event.bytes).map { pos -> event to pos }
             }
-            .subscribe { (event, pos) ->
+            .subscribe { (_, pos) ->
                 if (shouldPublish(pos.relativeHeight)) {
                     val percent = pos.relativeHeight * 100.0
                     log.info("Float detected: {}%", String.format("%.1f", percent))
 
-                    eventBus.publish(OilEvent.FloatPositionDetected(pos))
+                    localEventBus.publish(OilEvent.FloatPositionDetected(pos))
                 } else {
                     val last = lastPublished
                     val delta = last?.let { abs(pos.relativeHeight - it) }
