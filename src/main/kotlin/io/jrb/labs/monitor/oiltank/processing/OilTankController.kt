@@ -26,6 +26,7 @@ package io.jrb.labs.monitor.oiltank.processing
 
 import io.jrb.labs.monitor.oiltank.events.LocalEventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
+import io.jrb.labs.monitor.oiltank.events.OilEventBus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
@@ -34,7 +35,8 @@ import reactor.core.publisher.Flux
 @RestController
 @RequestMapping("/api/tank")
 class OilTankController(
-    private val localEventBus: LocalEventBus
+    private val localEventBus: LocalEventBus,
+    private val eventBus: OilEventBus
 ) {
 
     @GetMapping("/stream")

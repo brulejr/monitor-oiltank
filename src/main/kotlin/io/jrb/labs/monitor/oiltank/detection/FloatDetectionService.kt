@@ -24,8 +24,10 @@
 
 package io.jrb.labs.monitor.oiltank.detection
 
+import io.jrb.labs.commons.eventbus.SystemEventBus
 import io.jrb.labs.monitor.oiltank.events.LocalEventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
+import io.jrb.labs.monitor.oiltank.events.OilEventBus
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -39,7 +41,9 @@ import kotlin.math.abs
 class FloatDetectionService(
     private val localEventBus: LocalEventBus,
     private val datafill: FloatDetectionDatafill,
-    private val meterRegistry: MeterRegistry
+    private val meterRegistry: MeterRegistry,
+    private val eventBus: OilEventBus,
+    systemEventBus: SystemEventBus
 ) {
 
     private val log = LoggerFactory.getLogger(FloatDetectionService::class.java)

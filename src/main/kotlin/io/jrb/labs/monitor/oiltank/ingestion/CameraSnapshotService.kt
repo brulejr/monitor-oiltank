@@ -24,8 +24,10 @@
 
 package io.jrb.labs.monitor.oiltank.ingestion
 
+import io.jrb.labs.commons.eventbus.SystemEventBus
 import io.jrb.labs.monitor.oiltank.events.LocalEventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
+import io.jrb.labs.monitor.oiltank.events.OilEventBus
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CancellationException
@@ -59,7 +61,9 @@ import kotlin.time.Duration.Companion.seconds
 @Service
 class CameraSnapshotService(
     private val datafill: CameraDatafill,
-    private val localEventBus: LocalEventBus      // 🔥 add this
+    private val localEventBus: LocalEventBus,
+    private val eventBus: OilEventBus,
+    systemEventBus: SystemEventBus
 ) {
 
     private val log = LoggerFactory.getLogger(CameraSnapshotService::class.java)

@@ -24,12 +24,16 @@
 
 package io.jrb.labs.monitor.oiltank.publishing
 
+import io.jrb.labs.commons.eventbus.SystemEventBus
+import io.jrb.labs.monitor.oiltank.events.OilEventBus
 import org.eclipse.paho.client.mqttv3.MqttClient
 import org.springframework.stereotype.Service
 
 @Service
 class MqttPublisher(
-    datafill: MqttDatafill
+    datafill: MqttDatafill,
+    private val eventBus: OilEventBus,
+    systemEventBus: SystemEventBus
 ) {
     private val client = MqttClient(datafill.brokerUrl, MqttClient.generateClientId())
 

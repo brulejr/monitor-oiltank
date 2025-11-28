@@ -24,14 +24,18 @@
 
 package io.jrb.labs.monitor.oiltank.processing
 
+import io.jrb.labs.commons.eventbus.SystemEventBus
 import io.jrb.labs.monitor.oiltank.events.LocalEventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
+import io.jrb.labs.monitor.oiltank.events.OilEventBus
 import jakarta.annotation.PostConstruct
 import org.springframework.stereotype.Service
 
 @Service
 class LevelEstimationService(
-    private val localEventBus: LocalEventBus
+    private val localEventBus: LocalEventBus,
+    private val eventBus: OilEventBus,
+    systemEventBus: SystemEventBus
 ) {
 
     @PostConstruct
