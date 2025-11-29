@@ -25,7 +25,6 @@
 package io.jrb.labs.monitor.oiltank.detection
 
 import io.jrb.labs.commons.eventbus.SystemEventBus
-import io.jrb.labs.monitor.oiltank.events.LocalEventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.jrb.labs.monitor.oiltank.events.OilEventBus
 import io.micrometer.core.instrument.DistributionSummary
@@ -34,12 +33,10 @@ import io.micrometer.core.instrument.Timer
 import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-import reactor.core.publisher.Mono
 import kotlin.math.abs
 
 @Service
 class FloatDetectionService(
-    private val localEventBus: LocalEventBus,
     private val datafill: FloatDetectionDatafill,
     private val meterRegistry: MeterRegistry,
     private val eventBus: OilEventBus,
@@ -83,58 +80,54 @@ class FloatDetectionService(
 
     @PostConstruct
     fun listen() {
-        localEventBus.events()
-            .ofType(OilEvent.SnapshotReceived::class.java)
-            .flatMap { event ->
-                detectFloat(event.bytes).map { pos -> event to pos }
-            }
-            .subscribe { (_, pos) ->
-                if (shouldPublish(pos.relativeHeight)) {
-                    val percent = pos.relativeHeight * 100.0
-                    log.info("Float detected: {}%", String.format("%.1f", percent))
+        eventBus.subscribe<OilEvent.SnapshotReceived> { message ->
+            val fpos = detectFloat(message.bytes)
+            if (shouldPublish(fpos.relativeHeight)) {
+                val percent = fpos.relativeHeight * 100.0
+                log.info("Float detected: {}%", String.format("%.1f", percent))
 
-                    localEventBus.publish(OilEvent.FloatPositionDetected(pos))
-                } else {
-                    val last = lastPublished
-                    val delta = last?.let { abs(pos.relativeHeight - it) }
-                    log.debug(
-                        "Float change below hysteresis threshold; not publishing. level={}, lastPublished={}, delta={}",
-                        String.format("%.4f", pos.relativeHeight),
-                        last?.let { String.format("%.4f", it) },
-                        delta?.let { String.format("%.4f", it) }
-                    )
-                }
+                eventBus.publish(OilEvent.FloatPositionDetected(fpos))
+            } else {
+                val last = lastPublished
+                val delta = last?.let { abs(fpos.relativeHeight - it) }
+                log.debug(
+                    "Float change below hysteresis threshold; not publishing. level={}, lastPublished={}, delta={}",
+                    String.format("%.4f", fpos.relativeHeight),
+                    last?.let { String.format("%.4f", it) },
+                    delta?.let { String.format("%.4f", it) }
+                )
             }
+        }
+
     }
 
-    fun detectFloat(bytes: ByteArray): Mono<FloatPosition> =
-        Mono.fromCallable {
-            val sample = Timer.start(meterRegistry)
+    fun detectFloat(bytes: ByteArray): FloatPosition {
+        val sample = Timer.start(meterRegistry)
 
-            val raw = FloatDetector.detect(bytes).coerceIn(0.0, 1.0)
-            val calibrated = calibrate(raw)
-            val smoothed = smooth(calibrated)
-            val percent = smoothed * 100.0
+        val raw = FloatDetector.detect(bytes).coerceIn(0.0, 1.0)
+        val calibrated = calibrate(raw)
+        val smoothed = smooth(calibrated)
+        val percent = smoothed * 100.0
 
-            sample.stop(detectionTimer)
+        sample.stop(detectionTimer)
 
-            // ---- metrics ----
-            rawLevelSummary.record(raw)
-            calibratedLevelSummary.record(calibrated)
-            smoothedLevelSummary.record(smoothed)
-            percentLevelSummary.record(percent)
+        // ---- metrics ----
+        rawLevelSummary.record(raw)
+        calibratedLevelSummary.record(calibrated)
+        smoothedLevelSummary.record(smoothed)
+        percentLevelSummary.record(percent)
 
-            // ---- structured logging ----
-            log.info(
-                "FloatDetection raw={}, calibrated={}, smoothed={}, percent={}",
-                String.format("%.4f", raw),
-                String.format("%.4f", calibrated),
-                String.format("%.4f", smoothed),
-                String.format("%.1f", percent)
-            )
+        // ---- structured logging ----
+        log.info(
+            "FloatDetection raw={}, calibrated={}, smoothed={}, percent={}",
+            String.format("%.4f", raw),
+            String.format("%.4f", calibrated),
+            String.format("%.4f", smoothed),
+            String.format("%.1f", percent)
+        )
 
-            FloatPosition(smoothed)
-        }
+        return FloatPosition(smoothed)
+    }
 
     // --- Calibration, smoothing, hysteresis --------------------------------
 

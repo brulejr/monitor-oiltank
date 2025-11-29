@@ -25,7 +25,6 @@
 package io.jrb.labs.monitor.oiltank.ingestion
 
 import io.jrb.labs.commons.eventbus.SystemEventBus
-import io.jrb.labs.monitor.oiltank.events.LocalEventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.jrb.labs.monitor.oiltank.events.OilEventBus
 import jakarta.annotation.PostConstruct
@@ -61,7 +60,6 @@ import kotlin.time.Duration.Companion.seconds
 @Service
 class CameraSnapshotService(
     private val datafill: CameraDatafill,
-    private val localEventBus: LocalEventBus,
     private val eventBus: OilEventBus,
     systemEventBus: SystemEventBus
 ) {
@@ -153,7 +151,7 @@ class CameraSnapshotService(
         )
 
         // 🔥🔥🔥 Publish snapshot into the event pipeline
-        localEventBus.publish(OilEvent.SnapshotReceived(imageBytes))
+        eventBus.publish(OilEvent.SnapshotReceived(imageBytes))
         log.info("Published snapshot to EventBus ({} bytes)", imageBytes.size)
     }
 }

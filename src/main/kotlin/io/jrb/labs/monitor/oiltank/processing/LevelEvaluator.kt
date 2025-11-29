@@ -25,7 +25,6 @@
 package io.jrb.labs.monitor.oiltank.processing
 
 import io.jrb.labs.commons.eventbus.SystemEventBus
-import io.jrb.labs.monitor.oiltank.events.LocalEventBus
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.jrb.labs.monitor.oiltank.events.OilEventBus
 import io.jrb.labs.monitor.oiltank.publishing.MqttPublisher
@@ -34,7 +33,6 @@ import org.springframework.stereotype.Service
 
 @Service
 class LevelEvaluator(
-    private val localEventBus: LocalEventBus,
     private val datafill: LevelThresholdDatafill,
     private val mqtt: MqttPublisher,
     private val eventBus: OilEventBus,
@@ -43,9 +41,9 @@ class LevelEvaluator(
 
     @PostConstruct
     fun listen() {
-        localEventBus.events()
-            .ofType(OilEvent.LevelCalculated::class.java)
-            .subscribe { evaluate(it.level) }
+        eventBus.subscribe<OilEvent.LevelCalculated> { message ->
+            evaluate(message.level)
+        }
     }
 
     private fun evaluate(level: TankLevel) {
