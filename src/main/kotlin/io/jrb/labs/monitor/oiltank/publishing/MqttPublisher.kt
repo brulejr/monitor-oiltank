@@ -25,35 +25,30 @@
 package io.jrb.labs.monitor.oiltank.publishing
 
 import io.jrb.labs.commons.eventbus.SystemEventBus
-import io.jrb.labs.monitor.oiltank.events.OilEventBus
+import io.jrb.labs.commons.service.ControllableService
 import org.eclipse.paho.client.mqttv3.MqttClient
 import org.springframework.stereotype.Service
 
 @Service
 class MqttPublisher(
     datafill: MqttDatafill,
-    private val eventBus: OilEventBus,
     systemEventBus: SystemEventBus
-) {
+) : ControllableService(systemEventBus) {
+
     private val client = MqttClient(datafill.brokerUrl, MqttClient.generateClientId())
 
-    init {
+    override fun onStart() {
         client.connect()
     }
 
-    private val levelTopic = datafill.topic.level
-    private val alertTopic = datafill.topic.alert
-
-    fun publishLevel(percent: Int) {
-        client.publish(levelTopic, percent.toString().toByteArray(), 1, false)
-    }
-
-    fun publishAlert(message: String) {
-        client.publish(alertTopic, message.toByteArray(), 1, false)
+    override fun onStop() {
+        client.disconnect()
     }
 
     fun publish(topic: String, payload: String, qos: Int = 1, retain: Boolean = true) {
-        client.publish(topic, payload.toByteArray(), qos, retain)
+        if (isRunning()) {
+            client.publish(topic, payload.toByteArray(), qos, retain)
+        }
     }
 
 }
