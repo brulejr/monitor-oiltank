@@ -24,9 +24,11 @@
 
 package io.jrb.labs.monitor.oiltank.publishing
 
+import com.hivemq.client.mqtt.datatypes.MqttQos
+import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
 import io.jrb.labs.commons.eventbus.SystemEventBus
 import io.jrb.labs.commons.service.ControllableService
-import org.eclipse.paho.client.mqttv3.MqttClient
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 @Service
@@ -35,19 +37,36 @@ class MqttPublisher(
     systemEventBus: SystemEventBus
 ) : ControllableService(systemEventBus) {
 
-    private val client = MqttClient(datafill.brokerUrl, MqttClient.generateClientId())
+    private val log = LoggerFactory.getLogger(MqttPublisher::class.java)
+
+    private val _mqttClient: Mqtt3AsyncClient = com.hivemq.client.mqtt.MqttClient.builder()
+        .useMqttVersion3()
+        .identifier(datafill.clientId)
+        .serverHost(datafill.host)
+        .serverPort(datafill.port)
+        .buildAsync()
 
     override fun onStart() {
-        client.connect()
+        _mqttClient.connect()
     }
 
     override fun onStop() {
-        client.disconnect()
+        _mqttClient.disconnect()
     }
 
     fun publish(topic: String, payload: String, qos: Int = 1, retain: Boolean = true) {
         if (isRunning()) {
-            client.publish(topic, payload.toByteArray(), qos, retain)
+            _mqttClient.publishWith()
+            .topic(topic)
+            .payload(payload.toByteArray())
+                .qos(MqttQos.fromCode(qos) ?: MqttQos.AT_LEAST_ONCE)
+                .retain(retain)
+                .send()
+                .whenComplete { _, t ->
+                    if (t != null) {
+                        log.error("Publishing message failed. ${t.message}")
+                    }
+                }
         }
     }
 

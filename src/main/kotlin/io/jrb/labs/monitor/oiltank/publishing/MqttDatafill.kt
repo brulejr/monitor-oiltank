@@ -28,11 +28,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 
 @ConfigurationProperties(prefix = "application.mqtt")
 data class MqttDatafill(
-    val brokerUrl: String,
-    val topic: MqttTopics
-) {
-    data class MqttTopics(
-        val level: String,
-        val alert: String
-    )
-}
+    val clientId: String,
+    val host: String,
+    val port: Int
+)
