@@ -24,36 +24,28 @@
 
 package io.jrb.labs.monitor.oiltank.publishing
 
-import io.jrb.labs.commons.eventbus.SystemEventBus
-import io.jrb.labs.monitor.oiltank.events.OilEventBus
-import org.eclipse.paho.client.mqttv3.MqttClient
-import org.springframework.stereotype.Service
+import org.springframework.boot.context.properties.ConfigurationProperties
 
-@Service
-class MqttPublisher(
-    datafill: MqttDatafill,
-    private val eventBus: OilEventBus,
-    systemEventBus: SystemEventBus
+@ConfigurationProperties(prefix = "oiltank.mqtt")
+data class OilTankMqttDatafill(
+    val enabled: Boolean = true,
+    val discoveryPrefix: String = "homeassistant",
+    val sensorId: String = "oiltank_level",
+    val sensorName: String = "Oil Tank Level",
+    val deviceId: String = "oiltank_monitor",
+    val deviceName: String = "Oil Tank Monitor",
+    val deviceManufacturer: String = "io.jrb.labs",
+    val deviceModel: String = "monitor-oiltank"
 ) {
-    private val client = MqttClient(datafill.brokerUrl, MqttClient.generateClientId())
+    val discoveryTopic: String
+        get() = "$discoveryPrefix/sensor/$sensorId/config"
 
-    init {
-        client.connect()
-    }
+    val stateTopic: String
+        get() = "$discoveryPrefix/sensor/$sensorId/state"
 
-    private val levelTopic = datafill.topic.level
-    private val alertTopic = datafill.topic.alert
+    val attributesTopic: String
+        get() = "$discoveryPrefix/sensor/$sensorId/attributes"
 
-    fun publishLevel(percent: Int) {
-        client.publish(levelTopic, percent.toString().toByteArray(), 1, false)
-    }
-
-    fun publishAlert(message: String) {
-        client.publish(alertTopic, message.toByteArray(), 1, false)
-    }
-
-    fun publish(topic: String, payload: String, qos: Int = 1, retain: Boolean = true) {
-        client.publish(topic, payload.toByteArray(), qos, retain)
-    }
-
+    val uniqueId: String
+        get() = sensorId
 }

@@ -40,3 +40,19 @@ application.mqtt:
   topic:
     level: "oil/level"
     alert: "oil/alert"
+
+oiltank:
+  detection:
+    calibration-slope: 1.0
+    calibration-intercept: 0.0
+    smoothing-alpha: 0.30
+    hysteresis-delta: 0.003
+  mqtt:
+    enabled: true
+    discovery-prefix: homeassistant
+    sensor-id: oiltank_level
+    sensor-name: "Oil Tank Level"
+    device-id: "oiltank_monitor"
+    device-name: "Oil Tank Monitor"
+    device-manufacturer: "io.jrb.labs"
+    device-model: "monitor-oiltank"
