@@ -26,9 +26,7 @@ logging.level:
   org.springframework: INFO
 
 application.camera:
-  #snapshotUrl: "rtsp://user:pass@192.168.1.10:554/stream1"
-  #username: "user"
-  #password: "pass"
+  snapshot-url: "${OILTANK_CAMERA_RTSP_URL:}"
   intervalSeconds: 10
 
 application.level:
@@ -36,10 +34,9 @@ application.level:
   maxPercent: 95
 
 application.mqtt:
-  #brokerUrl: "tcp://localhost:1883"
-  topic:
-    level: "oil/level"
-    alert: "oil/alert"
+  host: ${MQTT_HOST:localhost}
+  port: ${MQTT_PORT:1883}
+  client-id: ${spring.application.name}_publish
 
 oiltank:
   detection:

@@ -1,0 +1,38 @@
+services:
+
+  monitor-oiltank:
+    image: brulejr/monitor-oiltank:latest   # built by Jib
+    container_name: monitor-oiltank
+    restart: unless-stopped
+
+    environment:
+      # Spring profile
+      SPRING_PROFILES_ACTIVE: "prod"
+
+      # RTSP URL for the Tapo camera, etc
+      OILTANK_CAMERA_RTSP_URL_FILE: "/run/secrets/oiltank_camera_rtsp_url"
+
+      # MQTT connection info
+      OILTANK_MQTT_BROKER: "tcp://mqtt:1883"
+      OILTANK_MQTT_USERNAME: "homeassistant"
+
+      # Secrets via *_FILE pattern (handled in entrypoint.sh)
+      OILTANK_MQTT_PASSWORD_FILE: "/run/secrets/mqtt_password"
+
+      # Optional JVM tuning
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+
+    # Map Docker secrets into /run/secrets
+    secrets:
+      - mqtt_password
+      - oiltank_camera_rtsp_url
+
+    # Adjust networking to match your broker / HA environment
+    networks:
+      - default
+
+secrets:
+  mqtt_password:
+    file: ../secrets/mqtt_password.txt
+  oiltank_camera_rtsp_url:
+    file: ../secrets/oiltank_camera_rtsp_url.txt

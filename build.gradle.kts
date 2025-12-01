@@ -5,6 +5,7 @@ plugins {
 	kotlin("plugin.spring") version "2.2.10"
 	id("org.springframework.boot") version "3.5.7"
 	id("io.spring.dependency-management") version "1.1.7"
+    id("com.google.cloud.tools.jib") version "3.5.1"
 }
 
 group = "io.jrb.labs"
@@ -54,4 +55,65 @@ kotlin {
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+}
+
+apply(from = "docker/docker.gradle.kts")
+
+// Directory where ffmpeg gets unpacked – must match docker/docker.gradle.kts
+val ffmpegExtractDir = layout.buildDirectory.dir("ffmpeg").get().asFile
+
+jib {
+    from {
+        image = "eclipse-temurin:21-jre-jammy"
+    }
+
+    to {
+        image = "brulejr/monitor-oiltank:${project.version}"
+        tags = setOf("latest")
+    }
+
+    container {
+        user = "1000:1000"
+        ports = listOf("8080")
+
+        environment = mapOf(
+            "APP_MAIN_CLASS" to "io.jrb.labs.monitor.oiltank.MonitorOiltankApplicationKt"
+        )
+
+        entrypoint = listOf("/bin/bash", "/opt/docker/entrypoint.sh")
+    }
+
+    extraDirectories {
+        paths {
+            // 1) Entry point script under /opt/docker
+            path {
+                // ⬇⬇ THIS is the key: use setFrom(...) instead of from = ...
+                setFrom(file("docker/jib"))
+                into = "/opt/docker"
+
+                // permissions is a MapProperty<String, String> in newer Jib
+                permissions.set(
+                    mapOf("/opt/docker/entrypoint.sh" to "755")
+                )
+            }
+
+            // 2) ffmpeg directory in /usr/local/bin
+            path {
+                setFrom(ffmpegExtractDir)
+                into = "/usr/local/bin"
+
+                permissions.set(
+                    mapOf("/usr/local/bin/ffmpeg" to "755")
+                )
+            }
+        }
+    }
+}
+
+// Make sure ffmpeg is downloaded before building the image
+tasks.named("jib").configure {
+    dependsOn("downloadFfmpeg")
+}
+tasks.named("jibDockerBuild").configure {
+    dependsOn("downloadFfmpeg")
 }
