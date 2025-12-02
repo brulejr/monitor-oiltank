@@ -24,10 +24,11 @@
 
 package io.jrb.labs.monitor.oiltank.processing
 
+import io.jrb.labs.commons.eventbus.EventBus
 import io.jrb.labs.commons.eventbus.SystemEventBus
+import io.jrb.labs.commons.service.ControllableService
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.jrb.labs.monitor.oiltank.events.OilEventBus
-import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
@@ -35,17 +36,22 @@ import org.springframework.stereotype.Service
 class LevelEstimationService(
     private val eventBus: OilEventBus,
     systemEventBus: SystemEventBus
-) {
+) : ControllableService(systemEventBus) {
 
     private val log = LoggerFactory.getLogger(LevelEstimationService::class.java)
 
-    @PostConstruct
-    fun listen() {
-        eventBus.subscribe<OilEvent.FloatPositionDetected> { message ->
+    private var subscription: EventBus.Subscription? = null
+
+    override fun onStop() {
+        subscription = eventBus.subscribe<OilEvent.FloatPositionDetected> { message ->
             val tankLevel = TankLevel(percent = (message.position.relativeHeight * 100).toInt())
             log.info("tank level {}", tankLevel)
             eventBus.publish(OilEvent.LevelCalculated(tankLevel))
         }
+    }
+
+    override fun onStart() {
+        subscription?.cancel()
     }
 
 }
