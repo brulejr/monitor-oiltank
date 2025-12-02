@@ -24,13 +24,14 @@
 
 package io.jrb.labs.monitor.oiltank.detection
 
+import io.jrb.labs.commons.eventbus.EventBus
 import io.jrb.labs.commons.eventbus.SystemEventBus
+import io.jrb.labs.commons.service.ControllableService
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.jrb.labs.monitor.oiltank.events.OilEventBus
 import io.micrometer.core.instrument.DistributionSummary
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
-import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import kotlin.math.abs
@@ -41,9 +42,11 @@ class FloatDetectionService(
     private val meterRegistry: MeterRegistry,
     private val eventBus: OilEventBus,
     systemEventBus: SystemEventBus
-) {
+) : ControllableService(systemEventBus) {
 
     private val log = LoggerFactory.getLogger(FloatDetectionService::class.java)
+
+    private var subscription: EventBus.Subscription? = null
 
     @Volatile
     private var lastSmoothed: Double? = null
@@ -78,9 +81,8 @@ class FloatDetectionService(
             .description("Smoothed tank level [%]")
             .register(meterRegistry)
 
-    @PostConstruct
-    fun listen() {
-        eventBus.subscribe<OilEvent.SnapshotReceived> { message ->
+    override fun onStart() {
+        subscription = eventBus.subscribe<OilEvent.SnapshotReceived> { message ->
             val fpos = detectFloat(message.bytes)
             if (shouldPublish(fpos.relativeHeight)) {
                 val percent = fpos.relativeHeight * 100.0
@@ -98,7 +100,10 @@ class FloatDetectionService(
                 )
             }
         }
+    }
 
+    override fun onStop() {
+        subscription?.cancel()
     }
 
     fun detectFloat(bytes: ByteArray): FloatPosition {
