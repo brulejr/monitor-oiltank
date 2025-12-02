@@ -30,5 +30,5 @@ import org.springframework.boot.context.properties.ConfigurationProperties
 data class CameraDatafill(
     val snapshotUrl: String,
     val snapshotPath: String = "/tmp/oiltank-latest.jpg",
-    val intervalSeconds: Long
+    val snapshotIntervalMs: Long
 )

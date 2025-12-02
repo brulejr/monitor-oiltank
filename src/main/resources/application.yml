@@ -27,7 +27,7 @@ logging.level:
 
 application.camera:
   snapshot-url: "${OILTANK_CAMERA_RTSP_URL:}"
-  intervalSeconds: 10
+  snapshot-interval-ms: 30000
 
 application.level:
   minPercent: 20

@@ -29,7 +29,21 @@ import io.jrb.labs.monitor.oiltank.detection.FloatPosition
 import io.jrb.labs.monitor.oiltank.processing.TankLevel
 
 sealed class OilEvent : Event {
-    data class SnapshotReceived(val bytes: ByteArray) : OilEvent()
-    data class FloatPositionDetected(val position: FloatPosition) : OilEvent()
-    data class LevelCalculated(val level: TankLevel) : OilEvent()
+
+    data class SnapshotRequested(
+        val reason: String = "periodic"
+    ) : OilEvent()
+
+    data class SnapshotReceived(
+        val bytes: ByteArray
+    ) : OilEvent()
+
+    data class FloatPositionDetected(
+        val position: FloatPosition
+    ) : OilEvent()
+
+    data class LevelCalculated(
+        val level: TankLevel
+    ) : OilEvent()
+
 }

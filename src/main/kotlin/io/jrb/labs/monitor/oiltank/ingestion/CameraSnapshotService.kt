@@ -24,20 +24,13 @@
 
 package io.jrb.labs.monitor.oiltank.ingestion
 
+import io.jrb.labs.commons.eventbus.EventBus
 import io.jrb.labs.commons.eventbus.SystemEventBus
+import io.jrb.labs.commons.service.ControllableService
 import io.jrb.labs.monitor.oiltank.events.OilEvent
 import io.jrb.labs.monitor.oiltank.events.OilEventBus
-import jakarta.annotation.PostConstruct
-import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -45,7 +38,6 @@ import java.io.ByteArrayInputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * Simpler implementation:
@@ -62,31 +54,16 @@ class CameraSnapshotService(
     private val datafill: CameraDatafill,
     private val eventBus: OilEventBus,
     systemEventBus: SystemEventBus
-) {
+) : ControllableService(systemEventBus) {
 
     private val log = LoggerFactory.getLogger(CameraSnapshotService::class.java)
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     private val snapshotPath: Path = Path.of(datafill.snapshotPath)
 
-    @PostConstruct
-    fun start() {
-        log.info("Starting CameraSnapshotService FFmpeg snapshot loop")
-        scope.launch {
-            runSnapshotLoop()
-        }
-    }
+    private var subscription: EventBus.Subscription? = null
 
-    @PreDestroy
-    fun stop() {
-        log.info("Stopping CameraSnapshotService FFmpeg snapshot loop")
-        scope.cancel()
-    }
-
-    private suspend fun runSnapshotLoop() {
-        val interval = datafill.intervalSeconds.coerceAtLeast(5)
-        while (currentCoroutineContext().isActive) {
+    override fun onStart() {
+        subscription = eventBus.subscribe<OilEvent.SnapshotRequested> { event ->
             try {
                 captureSnapshot()
             } catch (e: CancellationException) {
@@ -94,9 +71,11 @@ class CameraSnapshotService(
             } catch (e: Exception) {
                 log.warn("Error capturing snapshot from camera", e)
             }
-
-            delay(interval.seconds)
         }
+    }
+
+    override fun onStop() {
+        subscription?.cancel()
     }
 
     private suspend fun captureSnapshot() = withContext(Dispatchers.IO) {
@@ -154,4 +133,5 @@ class CameraSnapshotService(
         eventBus.publish(OilEvent.SnapshotReceived(imageBytes))
         log.info("Published snapshot to EventBus ({} bytes)", imageBytes.size)
     }
+
 }
